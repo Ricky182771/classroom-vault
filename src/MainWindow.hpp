@@ -47,7 +47,7 @@ private slots:
         int errorCount);
     void onAttachmentProgress(int current, int total);
     void onAttachmentFinished(int downloaded, int skipped, int errors);
-    void onAttachmentCountersChanged(int downloaded, int skipped, int errors);
+    void onAttachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors);
 
     void appendLog(const QString &message);
     void appendError(const QString &message);
@@ -81,7 +81,9 @@ private:
     QLabel *m_updatedCountLabel = nullptr;
     QLabel *m_unchangedCountLabel = nullptr;
     QLabel *m_errorCountLabel = nullptr;
-    QLabel *m_attachmentDownloadedLabel = nullptr;
+    QLabel *m_attachmentBlobDownloadedLabel = nullptr;
+    QLabel *m_attachmentExportedLabel = nullptr;
+    QLabel *m_attachmentLinksLabel = nullptr;
     QLabel *m_attachmentSkippedLabel = nullptr;
     QLabel *m_attachmentErrorLabel = nullptr;
 

@@ -89,7 +89,9 @@ void MainWindow::setupUi()
     m_updatedCountLabel = new QLabel(QStringLiteral("Actualizadas: 0"), central);
     m_unchangedCountLabel = new QLabel(QStringLiteral("Sin cambios: 0"), central);
     m_errorCountLabel = new QLabel(QStringLiteral("Errores: 0"), central);
-    m_attachmentDownloadedLabel = new QLabel(QStringLiteral("Adjuntos descargados: 0"), central);
+    m_attachmentBlobDownloadedLabel = new QLabel(QStringLiteral("Archivos descargados: 0"), central);
+    m_attachmentExportedLabel = new QLabel(QStringLiteral("Google exportados: 0"), central);
+    m_attachmentLinksLabel = new QLabel(QStringLiteral("Links guardados: 0"), central);
     m_attachmentSkippedLabel = new QLabel(QStringLiteral("Adjuntos omitidos: 0"), central);
     m_attachmentErrorLabel = new QLabel(QStringLiteral("Errores adjuntos: 0"), central);
 
@@ -99,7 +101,9 @@ void MainWindow::setupUi()
     counterRow->addWidget(m_updatedCountLabel);
     counterRow->addWidget(m_unchangedCountLabel);
     counterRow->addWidget(m_errorCountLabel);
-    counterRow->addWidget(m_attachmentDownloadedLabel);
+    counterRow->addWidget(m_attachmentBlobDownloadedLabel);
+    counterRow->addWidget(m_attachmentExportedLabel);
+    counterRow->addWidget(m_attachmentLinksLabel);
     counterRow->addWidget(m_attachmentSkippedLabel);
     counterRow->addWidget(m_attachmentErrorLabel);
     counterRow->addStretch(1);
@@ -472,9 +476,11 @@ void MainWindow::onAttachmentFinished(int downloaded, int skipped, int errors)
             .arg(errors));
 }
 
-void MainWindow::onAttachmentCountersChanged(int downloaded, int skipped, int errors)
+void MainWindow::onAttachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors)
 {
-    m_attachmentDownloadedLabel->setText(QStringLiteral("Adjuntos descargados: %1").arg(downloaded));
+    m_attachmentBlobDownloadedLabel->setText(QStringLiteral("Archivos descargados: %1").arg(blobDownloaded));
+    m_attachmentExportedLabel->setText(QStringLiteral("Google exportados: %1").arg(exported));
+    m_attachmentLinksLabel->setText(QStringLiteral("Links guardados: %1").arg(linksSaved));
     m_attachmentSkippedLabel->setText(QStringLiteral("Adjuntos omitidos: %1").arg(skipped));
     m_attachmentErrorLabel->setText(QStringLiteral("Errores adjuntos: %1").arg(errors));
 }

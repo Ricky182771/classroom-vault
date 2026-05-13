@@ -56,7 +56,7 @@ signals:
         int errorCount);
     void attachmentProgress(int current, int total);
     void attachmentFinished(int downloaded, int skipped, int errors);
-    void attachmentCountersChanged(int downloaded, int skipped, int errors);
+    void attachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors);
     void logMessage(const QString &message);
     void errorOccurred(const QString &message);
 
@@ -67,6 +67,7 @@ private slots:
     void onAttachmentProgress(int current, int total);
     void onAttachmentFinished(int downloaded, int skipped, int errors);
     void onAttachmentLog(const QString &message);
+    void onAttachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors);
 
     void onTokenUpdated();
     void onAuthSucceeded();
@@ -103,7 +104,9 @@ private:
     int m_updatedCount = 0;
     int m_unchangedCount = 0;
     int m_errorCount = 0;
-    int m_attachmentDownloaded = 0;
+    int m_attachmentBlobDownloaded = 0;
+    int m_attachmentWorkspaceExported = 0;
+    int m_attachmentLinksSaved = 0;
     int m_attachmentSkipped = 0;
     int m_attachmentErrors = 0;
     bool m_autoDownloadAttachments = false;

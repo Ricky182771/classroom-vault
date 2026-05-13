@@ -76,7 +76,7 @@ Si `token.json` fue creado antes de agregar `drive.readonly`, puede faltar permi
 
 Mensaje esperado cuando falta permiso:
 
-`Se requiere permiso de lectura de Drive. Cierra sesion y vuelve a iniciar sesion para autorizar Drive.`
+`Se requiere permiso de lectura de Drive. Borra token.json o cierra sesion y vuelve a iniciar sesion para autorizar Drive.`
 
 ## Estructura de salida
 
@@ -110,14 +110,35 @@ Ruta base/
 - Para `link`, `youtubeVideo`, `form`:
   - se guarda `.url` en carpeta `Adjuntos/`.
 
+### Exportaciones Workspace
+
+- Google Docs (`application/vnd.google-apps.document`) -> `.docx`
+- Google Sheets (`application/vnd.google-apps.spreadsheet`) -> `.xlsx`
+- Google Slides (`application/vnd.google-apps.presentation`) -> `.pptx`
+- Google Drawings (`application/vnd.google-apps.drawing`) -> `.png`
+- Google Forms (`application/vnd.google-apps.form`) -> `.url` (enlace, no export binario)
+- Otros `application/vnd.google-apps.*` no exportables -> `.url` con `webViewLink` cuando exista
+
 ## Reglas de deduplicacion (actual)
 
-- Si el archivo ya existe y coincide (`md5Checksum` cuando existe, o tamano), se omite.
-- Si cambia, se vuelve a descargar/reemplazar.
+- Si `sync_state.json` indica mismo `modifiedTime` y existe `localPath`, se omite.
+- Si hay `md5Checksum`, se compara hash local para omitir/reemplazar.
+- Si no hay hash pero hay tamano remoto, se compara tamano para omitir/reemplazar.
+- Si cambia, se vuelve a descargar/exportar y reemplaza el archivo local.
 - Estado de adjuntos se guarda por tarea en `sync_state.json`.
+- `metadata.json` de cada tarea se actualiza con una seccion `attachments` basada en el estado sincronizado.
+
+### Contadores en GUI
+
+- Archivos descargados (binarios de Drive)
+- Google exportados (Workspace exportado)
+- Links guardados (`.url`)
+- Adjuntos omitidos
+- Errores adjuntos
 
 ## Limitaciones actuales
 
 - No hay cola paralela avanzada de descargas (procesamiento secuencial).
 - No hay selector fino de politica de versionado (actualmente reemplaza cuando detecta cambio).
 - Flujo OAuth sigue en modo manual (sin localhost callback automatico).
+- Si `files.export` falla por limites/permisos y existe enlace de vista, se guarda `.url` como respaldo.

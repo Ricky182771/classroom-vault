@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkRequest>
 #include <QUrlQuery>
 
 DriveClient::DriveClient(QObject *parent)
@@ -16,6 +17,64 @@ DriveClient::DriveClient(QObject *parent)
 void DriveClient::setAccessToken(const QString &token)
 {
     m_accessToken = token.trimmed();
+}
+
+bool DriveClient::isGoogleWorkspaceMimeType(const QString &mimeType) const
+{
+    return mimeType.trimmed().startsWith(QStringLiteral("application/vnd.google-apps."));
+}
+
+bool DriveClient::isExportableWorkspaceMimeType(const QString &mimeType) const
+{
+    return !exportMimeTypeFor(mimeType).isEmpty();
+}
+
+QString DriveClient::exportMimeTypeFor(const QString &sourceMimeType) const
+{
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.document")) {
+        return QStringLiteral("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.spreadsheet")) {
+        return QStringLiteral("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.presentation")) {
+        return QStringLiteral("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.drawing")) {
+        return QStringLiteral("image/png");
+    }
+    return QString();
+}
+
+QString DriveClient::extensionForExportedMimeType(const QString &sourceMimeType) const
+{
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.document")) {
+        return QStringLiteral(".docx");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.spreadsheet")) {
+        return QStringLiteral(".xlsx");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.presentation")) {
+        return QStringLiteral(".pptx");
+    }
+    if (sourceMimeType == QStringLiteral("application/vnd.google-apps.drawing")) {
+        return QStringLiteral(".png");
+    }
+    return QStringLiteral(".url");
+}
+
+void DriveClient::downloadFile(const QString &fileId, const QString &destinationDir, const QString &fileName)
+{
+    downloadBlobFile(fileId, destinationDir, fileName);
+}
+
+void DriveClient::exportGoogleWorkspaceFile(
+    const QString &fileId,
+    const QString &mimeType,
+    const QString &destinationDir,
+    const QString &fileName)
+{
+    exportWorkspaceFile(fileId, mimeType, destinationDir, fileName);
 }
 
 QNetworkRequest DriveClient::authorizedRequest(const QUrl &url) const
@@ -30,38 +89,27 @@ QString DriveClient::sanitizeFileName(const QString &name) const
     return FolderOrganizer::sanitizeFileName(name);
 }
 
-QString DriveClient::extensionForGoogleMimeType(const QString &mimeType) const
+QString DriveClient::uniquePathIfExists(const QString &desiredPath) const
 {
-    if (mimeType == QStringLiteral("application/vnd.google-apps.document")) {
-        return QStringLiteral(".docx");
+    if (!QFileInfo::exists(desiredPath)) {
+        return desiredPath;
     }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.spreadsheet")) {
-        return QStringLiteral(".xlsx");
-    }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.presentation")) {
-        return QStringLiteral(".pptx");
-    }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.drawing")) {
-        return QStringLiteral(".png");
-    }
-    return QString();
-}
 
-QString DriveClient::exportMimeTypeForGoogleMimeType(const QString &mimeType) const
-{
-    if (mimeType == QStringLiteral("application/vnd.google-apps.document")) {
-        return QStringLiteral("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.spreadsheet")) {
-        return QStringLiteral("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.presentation")) {
-        return QStringLiteral("application/vnd.openxmlformats-officedocument.presentationml.presentation");
-    }
-    if (mimeType == QStringLiteral("application/vnd.google-apps.drawing")) {
-        return QStringLiteral("image/png");
-    }
-    return QString();
+    const QFileInfo info(desiredPath);
+    const QString parentDir = info.absolutePath();
+    const QString baseName = info.completeBaseName();
+    const QString suffix = info.completeSuffix();
+    const QString extension = suffix.isEmpty() ? QString() : QStringLiteral(".") + suffix;
+
+    int index = 2;
+    QString candidatePath;
+    do {
+        const QString candidateName = sanitizeFileName(QStringLiteral("%1 (%2)%3").arg(baseName).arg(index).arg(extension));
+        candidatePath = QDir(parentDir).filePath(candidateName);
+        ++index;
+    } while (QFileInfo::exists(candidatePath) && index < 10000);
+
+    return candidatePath;
 }
 
 QString DriveClient::extractErrorMessage(const QByteArray &payload) const
@@ -109,7 +157,7 @@ void DriveClient::fetchFileMetadata(const QString &fileId)
     connect(reply, &QNetworkReply::finished, this, &DriveClient::onReplyFinished);
 }
 
-void DriveClient::downloadFile(const QString &fileId, const QString &destinationDir, const QString &fileName)
+void DriveClient::downloadBlobFile(const QString &fileId, const QString &destinationDir, const QString &fileName)
 {
     const QString id = fileId.trimmed();
     const QString dirPath = destinationDir.trimmed();
@@ -153,27 +201,32 @@ void DriveClient::downloadFile(const QString &fileId, const QString &destination
     connect(reply, &QNetworkReply::finished, this, &DriveClient::onReplyFinished);
 }
 
-void DriveClient::exportGoogleWorkspaceFile(
+void DriveClient::exportWorkspaceFile(
     const QString &fileId,
-    const QString &mimeType,
+    const QString &sourceMimeType,
     const QString &destinationDir,
     const QString &fileName)
 {
     const QString id = fileId.trimmed();
-    const QString googleMime = mimeType.trimmed();
-    const QString exportMime = exportMimeTypeForGoogleMimeType(googleMime);
+    const QString sourceMime = sourceMimeType.trimmed();
+    const QString exportMime = exportMimeTypeFor(sourceMime);
 
     if (m_accessToken.isEmpty()) {
         emit requestFailed(QStringLiteral("drive.export"), 0, QStringLiteral("No hay access token para Drive API."));
         return;
     }
 
-    if (id.isEmpty() || destinationDir.trimmed().isEmpty() || exportMime.isEmpty()) {
-        emit requestFailed(QStringLiteral("drive.export"), 0, QStringLiteral("Exportacion no soportada para este tipo de archivo."));
+    if (id.isEmpty() || destinationDir.trimmed().isEmpty()) {
+        emit requestFailed(QStringLiteral("drive.export"), 0, QStringLiteral("Parametros invalidos para exportacion de archivo."));
         return;
     }
 
-    const QString extension = extensionForGoogleMimeType(googleMime);
+    if (exportMime.isEmpty()) {
+        emit requestFailed(QStringLiteral("drive.export"), 400, QStringLiteral("Exportacion no soportada para MIME type: %1").arg(sourceMime));
+        return;
+    }
+
+    const QString extension = extensionForExportedMimeType(sourceMime);
     QString outName = sanitizeFileName(fileName.trimmed().isEmpty() ? id : fileName);
     if (!extension.isEmpty() && !outName.endsWith(extension, Qt::CaseInsensitive)) {
         outName += extension;
@@ -185,7 +238,7 @@ void DriveClient::exportGoogleWorkspaceFile(
         return;
     }
 
-    emit downloadStarted(id, outName);
+    emit exportStarted(id, outName);
 
     QUrl url(QStringLiteral("https://www.googleapis.com/drive/v3/files/%1/export")
                  .arg(QString::fromUtf8(QUrl::toPercentEncoding(id))));
@@ -200,7 +253,8 @@ void DriveClient::exportGoogleWorkspaceFile(
     req.fileId = id;
     req.destinationDir = destinationDir;
     req.fileName = outName;
-    req.mimeType = googleMime;
+    req.requestedMimeType = sourceMime;
+    req.resolvedExportMimeType = exportMime;
     req.context = QStringLiteral("drive.export");
     m_pending.insert(reply, req);
 
@@ -232,6 +286,8 @@ void DriveClient::onReplyFinished()
             errorMessage = QStringLiteral("Token invalido o expirado. Vuelve a iniciar sesion.");
         } else if (httpStatus == 403) {
             errorMessage = QStringLiteral("No tienes permiso para leer este archivo de Drive o falta el scope drive.readonly.");
+        } else if (httpStatus == 404) {
+            errorMessage = QStringLiteral("Archivo no encontrado en Drive (404).");
         }
 
         emit requestFailed(req.context, httpStatus, errorMessage);
@@ -262,10 +318,19 @@ void DriveClient::onReplyFinished()
             return;
         }
 
-        file.write(payload);
+        const qint64 written = file.write(payload);
         file.close();
+        if (written < 0) {
+            emit requestFailed(req.context, httpStatus, QStringLiteral("Fallo al escribir archivo en disco: %1").arg(destinationPath));
+            reply->deleteLater();
+            return;
+        }
 
         emit downloadFinished(req.fileId, destinationPath);
+        if (req.kind == QStringLiteral("export")) {
+            emit exportFinished(req.fileId, destinationPath);
+        }
+
         reply->deleteLater();
         return;
     }
