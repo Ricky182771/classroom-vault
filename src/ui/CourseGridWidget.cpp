@@ -26,7 +26,7 @@ CourseGridWidget::CourseGridWidget(QWidget *parent)
 void CourseGridWidget::setCourses(const QVector<CourseUiState> &courses)
 {
     m_courses = courses;
-    scheduleRefresh();
+    scheduleRefresh(true);
 }
 
 void CourseGridWidget::setFilter(const QString &filter)
@@ -36,11 +36,21 @@ void CourseGridWidget::setFilter(const QString &filter)
         return;
     }
     m_filter = normalized;
-    scheduleRefresh();
+    scheduleRefresh(true);
 }
 
-void CourseGridWidget::scheduleRefresh()
+int CourseGridWidget::columnsForWidth(int width) const
 {
+    const int available = qMax(320, width);
+    return qMax(1, available / 300);
+}
+
+void CourseGridWidget::scheduleRefresh(bool force)
+{
+    if (force) {
+        m_forceRefreshPending = true;
+    }
+
     if (m_refreshScheduled) {
         return;
     }
@@ -48,7 +58,9 @@ void CourseGridWidget::scheduleRefresh()
     m_refreshScheduled = true;
     QTimer::singleShot(0, this, [this]() {
         m_refreshScheduled = false;
-        refreshGrid();
+        const bool forceNow = m_forceRefreshPending;
+        m_forceRefreshPending = false;
+        refreshGrid(forceNow);
     });
 }
 
@@ -67,8 +79,15 @@ QVector<CourseUiState> CourseGridWidget::filteredCourses() const
     return result;
 }
 
-void CourseGridWidget::refreshGrid()
+void CourseGridWidget::refreshGrid(bool force)
 {
+    const int columns = columnsForWidth(width());
+    if (!force && columns == m_lastColumnCount) {
+        return;
+    }
+
+    m_lastColumnCount = columns;
+
     QLayoutItem *item;
     while ((item = m_grid->takeAt(0)) != nullptr) {
         delete item->widget();
@@ -76,8 +95,6 @@ void CourseGridWidget::refreshGrid()
     }
 
     const QVector<CourseUiState> list = filteredCourses();
-    const int available = qMax(320, width());
-    const int columns = qMax(1, available / 300);
 
     int row = 0;
     int col = 0;
@@ -110,5 +127,9 @@ void CourseGridWidget::refreshGrid()
 void CourseGridWidget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
-    scheduleRefresh();
+    const int oldColumns = columnsForWidth(event->oldSize().width());
+    const int newColumns = columnsForWidth(event->size().width());
+    if (oldColumns != newColumns) {
+        scheduleRefresh(false);
+    }
 }

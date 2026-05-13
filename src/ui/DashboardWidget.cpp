@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
 
 DashboardWidget::DashboardWidget(QWidget *parent)
@@ -22,6 +23,9 @@ DashboardWidget::DashboardWidget(QWidget *parent)
     auto *scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    // Evita oscilaciones de ancho (y parpadeo) cuando la barra vertical aparece/desaparece.
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     root->addWidget(scroll);
 
     auto *content = new QWidget(scroll);
