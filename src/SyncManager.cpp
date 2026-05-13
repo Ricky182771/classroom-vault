@@ -43,9 +43,13 @@ SyncManager::SyncManager(QObject *parent)
         logInfo(message);
     });
     connect(&m_googleAuth, &GoogleAuth::errorOccurred, this, [this](const QString &message) {
+        m_waitingForTokenRefresh = false;
         ++m_errorCount;
         logErr(message);
         emitCounters();
+    });
+    connect(&m_googleAuth, &GoogleAuth::authFailed, this, [this](const QString &) {
+        m_waitingForTokenRefresh = false;
     });
 
     emitCounters();
@@ -149,6 +153,7 @@ void SyncManager::refreshAuthConfig()
         m_configManager.oauthClientSecret(),
         m_configManager.oauthRedirectUri(),
         m_configManager.oauthScopes());
+    m_googleAuth.setTokenUri(m_configManager.oauthTokenUri());
 
     m_syncStateManager.setStatePath(m_configManager.syncStatePath());
 }
@@ -331,6 +336,7 @@ void SyncManager::onTokenUpdated()
         logErr(QStringLiteral("No se pudo guardar token.json"));
         emitCounters();
     }
+    m_classroomClient.setAccessToken(m_googleAuth.accessToken());
     m_driveClient.setAccessToken(m_googleAuth.accessToken());
 }
 

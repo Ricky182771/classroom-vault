@@ -26,10 +26,13 @@ private slots:
     void onOpenBaseFolder();
     void onClearLogs();
     void onLogin();
+    void onLogout();
     void onLoadSampleData();
     void onLoadClassroom();
     void onSyncFolders();
     void onDownloadAttachments();
+    void onAuthStatusChanged(const QString &status);
+    void onAuthFailed(const QString &errorMessage);
 
     void onCoursesChanged(const QList<Course> &courses);
     void onAssignmentsChanged(const QList<Assignment> &assignments);
@@ -64,6 +67,7 @@ private:
     QPushButton *m_openBaseFolderButton = nullptr;
     QPushButton *m_clearLogsButton = nullptr;
     QPushButton *m_loginButton = nullptr;
+    QPushButton *m_logoutButton = nullptr;
     QPushButton *m_loadSampleButton = nullptr;
     QPushButton *m_loadClassroomButton = nullptr;
     QPushButton *m_syncButton = nullptr;

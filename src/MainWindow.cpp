@@ -66,6 +66,7 @@ void MainWindow::setupUi()
 
     auto *buttonRow = new QHBoxLayout();
     m_loginButton = new QPushButton(QStringLiteral("Iniciar sesion"), central);
+    m_logoutButton = new QPushButton(QStringLiteral("Cerrar sesion"), central);
     m_loadSampleButton = new QPushButton(QStringLiteral("Cargar datos de prueba"), central);
     m_loadClassroomButton = new QPushButton(QStringLiteral("Cargar Classroom"), central);
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar carpetas"), central);
@@ -74,6 +75,7 @@ void MainWindow::setupUi()
     m_clearLogsButton = new QPushButton(QStringLiteral("Limpiar logs"), central);
 
     buttonRow->addWidget(m_loginButton);
+    buttonRow->addWidget(m_logoutButton);
     buttonRow->addWidget(m_loadSampleButton);
     buttonRow->addWidget(m_loadClassroomButton);
     buttonRow->addWidget(m_syncButton);
@@ -158,6 +160,7 @@ void MainWindow::connectSignals()
     connect(m_openBaseFolderButton, &QPushButton::clicked, this, &MainWindow::onOpenBaseFolder);
     connect(m_clearLogsButton, &QPushButton::clicked, this, &MainWindow::onClearLogs);
     connect(m_loginButton, &QPushButton::clicked, this, &MainWindow::onLogin);
+    connect(m_logoutButton, &QPushButton::clicked, this, &MainWindow::onLogout);
     connect(m_loadSampleButton, &QPushButton::clicked, this, &MainWindow::onLoadSampleData);
     connect(m_loadClassroomButton, &QPushButton::clicked, this, &MainWindow::onLoadClassroom);
     connect(m_syncButton, &QPushButton::clicked, this, &MainWindow::onSyncFolders);
@@ -179,6 +182,23 @@ void MainWindow::connectSignals()
     connect(m_syncManager, &SyncManager::attachmentCountersChanged, this, &MainWindow::onAttachmentCountersChanged);
     connect(m_syncManager, &SyncManager::logMessage, this, &MainWindow::appendLog);
     connect(m_syncManager, &SyncManager::errorOccurred, this, &MainWindow::appendError);
+
+    GoogleAuth *auth = m_syncManager->googleAuth();
+    connect(auth, &GoogleAuth::authenticationStarted, this, [this]() {
+        m_loginButton->setEnabled(false);
+    });
+    connect(auth, &GoogleAuth::browserOpened, this, [this](const QUrl &) {
+        appendLog(QStringLiteral("INFO  Navegador abierto para autenticacion OAuth."));
+    });
+    connect(auth, &GoogleAuth::authenticated, this, [this](const QString &) {
+        m_loginButton->setEnabled(true);
+        appendLog(QStringLiteral("INFO  Autorizacion completada."));
+    });
+    connect(auth, &GoogleAuth::tokenRefreshed, this, [this](const QString &) {
+        appendLog(QStringLiteral("INFO  Token actualizado automaticamente."));
+    });
+    connect(auth, &GoogleAuth::authStatusChanged, this, &MainWindow::onAuthStatusChanged);
+    connect(auth, &GoogleAuth::authFailed, this, &MainWindow::onAuthFailed);
 }
 
 QString MainWindow::resolveSampleDataPath() const
@@ -245,23 +265,79 @@ void MainWindow::onLogin()
         return;
     }
 
-    auth->startAuthorization();
-
-    bool ok = false;
-    const QString code = QInputDialog::getText(
-        this,
-        QStringLiteral("Codigo de autorizacion"),
-        QStringLiteral("Pega aqui el authorization code de Google:"),
-        QLineEdit::Normal,
-        QString(),
-        &ok);
-
-    if (!ok || code.trimmed().isEmpty()) {
-        appendLog(QStringLiteral("INFO  Autorizacion cancelada por el usuario."));
+    if (auth->hasValidAccessToken()) {
+        appendLog(QStringLiteral("INFO  Ya hay una sesion activa."));
         return;
     }
 
-    auth->exchangeAuthorizationCode(code.trimmed());
+    if (!auth->refreshToken().trimmed().isEmpty()) {
+        appendLog(QStringLiteral("INFO  Intentando refrescar sesion..."));
+        m_loginButton->setEnabled(false);
+        auth->refreshAccessToken();
+        return;
+    }
+
+    appendLog(QStringLiteral("INFO  Abriendo navegador para iniciar sesion con Google..."));
+    m_loginButton->setEnabled(false);
+    auth->startAuthorization();
+}
+
+void MainWindow::onLogout()
+{
+    GoogleAuth *auth = m_syncManager->googleAuth();
+    auth->signOut();
+    appendLog(QStringLiteral("INFO  Sesion cerrada localmente."));
+    m_loginButton->setEnabled(true);
+}
+
+void MainWindow::onAuthStatusChanged(const QString &status)
+{
+    if (status == QStringLiteral("waiting_callback")) {
+        appendLog(QStringLiteral("INFO  Esperando autorizacion en navegador..."));
+        return;
+    }
+
+    if (status == QStringLiteral("authorization_code_received")) {
+        appendLog(QStringLiteral("INFO  Codigo de autorizacion recibido."));
+        return;
+    }
+
+    if (status == QStringLiteral("manual_code_required")) {
+        appendError(QStringLiteral("No se pudo iniciar servidor local de autenticacion. Se usara fallback manual."));
+
+        bool ok = false;
+        const QString code = QInputDialog::getText(
+            this,
+            QStringLiteral("Codigo de autorizacion"),
+            QStringLiteral("Pega aqui el authorization code de Google:"),
+            QLineEdit::Normal,
+            QString(),
+            &ok);
+
+        if (!ok || code.trimmed().isEmpty()) {
+            appendLog(QStringLiteral("INFO  Autorizacion manual cancelada."));
+            m_loginButton->setEnabled(true);
+            return;
+        }
+
+        m_syncManager->googleAuth()->exchangeAuthorizationCode(code.trimmed());
+        return;
+    }
+
+    if (status == QStringLiteral("authenticated") || status == QStringLiteral("token_refreshed")) {
+        m_loginButton->setEnabled(true);
+        return;
+    }
+
+    if (status == QStringLiteral("failed") || status == QStringLiteral("cancelled")) {
+        m_loginButton->setEnabled(true);
+    }
+}
+
+void MainWindow::onAuthFailed(const QString &errorMessage)
+{
+    Q_UNUSED(errorMessage)
+    m_loginButton->setEnabled(true);
 }
 
 void MainWindow::onLoadSampleData()

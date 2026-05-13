@@ -4,7 +4,7 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 
 ## Estado actual
 
-- OAuth 2.0 para app de escritorio (flujo manual copiar/pegar codigo).
+- OAuth 2.0 para app de escritorio con **login automatico por navegador + loopback local** (`127.0.0.1`).
 - Lectura de cursos activos y tareas desde Classroom API.
 - Creacion y actualizacion de carpetas/`metadata.json`.
 - Estado persistente en `sync_state.json` para evitar duplicados.
@@ -64,6 +64,41 @@ Debes habilitar ambas en tu proyecto de Google Cloud Console.
 - `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
 - `https://www.googleapis.com/auth/drive.readonly`
 
+## Autenticacion OAuth automatica
+
+- Al presionar **Iniciar sesion**, la app levanta un servidor temporal local en `127.0.0.1` con puerto dinamico.
+- La app abre el navegador del sistema y envia a Google OAuth.
+- Google redirige a `http://127.0.0.1:<puerto>/callback?...`.
+- Classroom Vault captura el `code` automaticamente y cierra el servidor local.
+- Se muestra una pagina de exito en el navegador:
+  - `Autorizacion completada. Ya puedes volver a Classroom Vault.`
+- La app intercambia el `code` por `access_token` y `refresh_token` y guarda `token.json`.
+- En ejecuciones siguientes, si el token expiro y hay `refresh_token`, se refresca automaticamente sin abrir navegador.
+- Si falla el refresco, se solicita iniciar sesion nuevamente.
+- Timeout de autenticacion: `180` segundos.
+
+### Configuracion de credenciales
+
+En `config.json` puedes usar:
+
+- `oauth.clientId` y `oauth.clientSecret` directamente, o
+- `oauth.credentialsFile` apuntando a un `credentials.json` de Google (`installed`).
+
+Si usas `credentialsFile`, la app toma automaticamente:
+
+- `client_id`
+- `client_secret`
+- `token_uri`
+- `redirect_uris` (cuando aplica)
+
+### Fallback manual
+
+Si por alguna razon no se puede iniciar el servidor local (`QTcpServer`), la app cambia a modo manual:
+
+1. Abre el navegador.
+2. Solicita pegar el `authorization code`.
+3. Continua con el intercambio de tokens.
+
 ## Si ya tenias sesion previa sin Drive
 
 Si `token.json` fue creado antes de agregar `drive.readonly`, puede faltar permiso para adjuntos.
@@ -77,6 +112,8 @@ Si `token.json` fue creado antes de agregar `drive.readonly`, puede faltar permi
 Mensaje esperado cuando falta permiso:
 
 `Se requiere permiso de lectura de Drive. Borra token.json o cierra sesion y vuelve a iniciar sesion para autorizar Drive.`
+
+Tambien puedes usar el boton **Cerrar sesion** en la GUI para limpiar sesion local y volver a autorizar.
 
 ## Estructura de salida
 
@@ -98,6 +135,8 @@ Ruta base/
 - `~/.config/ClassroomVault/config.json`
 - `~/.config/ClassroomVault/token.json`
 - `~/.config/ClassroomVault/sync_state.json`
+
+`token.json` se guarda localmente y no debe subirse al repositorio.
 
 ## Descarga de adjuntos
 
@@ -140,5 +179,16 @@ Ruta base/
 
 - No hay cola paralela avanzada de descargas (procesamiento secuencial).
 - No hay selector fino de politica de versionado (actualmente reemplaza cuando detecta cambio).
-- Flujo OAuth sigue en modo manual (sin localhost callback automatico).
 - Si `files.export` falla por limites/permisos y existe enlace de vista, se guarda `.url` como respaldo.
+
+## Troubleshooting OAuth
+
+Problema: la app sigue pidiendo permisos viejos o Drive devuelve 403.
+
+Solucion:
+
+1. Cierra la app.
+2. Borra `~/.config/ClassroomVault/token.json` o usa **Cerrar sesion**.
+3. Abre la app.
+4. Inicia sesion de nuevo.
+5. Acepta los permisos actualizados.

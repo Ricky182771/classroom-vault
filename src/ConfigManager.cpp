@@ -6,6 +6,56 @@
 #include <QJsonDocument>
 #include <QRegularExpression>
 
+namespace {
+
+void applyOAuthCredentialsFile(QJsonObject &oauth, const QString &configDir)
+{
+    QString credentialsPath = oauth.value(QStringLiteral("credentialsFile")).toString().trimmed();
+    if (credentialsPath.isEmpty()) {
+        return;
+    }
+
+    if (QDir::isRelativePath(credentialsPath)) {
+        credentialsPath = QDir(configDir).filePath(credentialsPath);
+    }
+
+    QFile file(credentialsPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    if (!doc.isObject()) {
+        return;
+    }
+
+    QJsonObject source = doc.object();
+    if (source.contains(QStringLiteral("installed")) && source.value(QStringLiteral("installed")).isObject()) {
+        source = source.value(QStringLiteral("installed")).toObject();
+    }
+
+    const QString clientId = source.value(QStringLiteral("client_id")).toString().trimmed();
+    const QString clientSecret = source.value(QStringLiteral("client_secret")).toString().trimmed();
+    const QString tokenUri = source.value(QStringLiteral("token_uri")).toString().trimmed();
+    const QJsonArray redirectUris = source.value(QStringLiteral("redirect_uris")).toArray();
+
+    if (oauth.value(QStringLiteral("clientId")).toString().trimmed().isEmpty() && !clientId.isEmpty()) {
+        oauth.insert(QStringLiteral("clientId"), clientId);
+    }
+    if (oauth.value(QStringLiteral("clientSecret")).toString().trimmed().isEmpty() && !clientSecret.isEmpty()) {
+        oauth.insert(QStringLiteral("clientSecret"), clientSecret);
+    }
+    if (oauth.value(QStringLiteral("tokenUri")).toString().trimmed().isEmpty() && !tokenUri.isEmpty()) {
+        oauth.insert(QStringLiteral("tokenUri"), tokenUri);
+    }
+    if (oauth.value(QStringLiteral("redirectUri")).toString().trimmed().isEmpty() && !redirectUris.isEmpty()) {
+        oauth.insert(QStringLiteral("redirectUri"), redirectUris.first().toString());
+    }
+}
+
+} // namespace
+
 ConfigManager::ConfigManager()
     : m_configDir(QDir::homePath() + QStringLiteral("/.config/ClassroomVault"))
 {
@@ -26,7 +76,8 @@ void ConfigManager::loadDefaults()
     m_oauth = {
         {QStringLiteral("clientId"), QString()},
         {QStringLiteral("clientSecret"), QString()},
-        {QStringLiteral("redirectUri"), QStringLiteral("urn:ietf:wg:oauth:2.0:oob")},
+        {QStringLiteral("redirectUri"), QStringLiteral("http://127.0.0.1")},
+        {QStringLiteral("tokenUri"), QStringLiteral("https://oauth2.googleapis.com/token")},
         {QStringLiteral("scopes"), defaultScopes},
     };
 }
@@ -115,6 +166,8 @@ bool ConfigManager::load()
     if (root.contains(QStringLiteral("oauth")) && root.value(QStringLiteral("oauth")).isObject()) {
         m_oauth = root.value(QStringLiteral("oauth")).toObject();
     }
+
+    applyOAuthCredentialsFile(m_oauth, m_configDir);
 
     return true;
 }
@@ -211,7 +264,13 @@ QString ConfigManager::oauthClientSecret() const
 QString ConfigManager::oauthRedirectUri() const
 {
     const QString redirectUri = m_oauth.value(QStringLiteral("redirectUri")).toString().trimmed();
-    return redirectUri.isEmpty() ? QStringLiteral("urn:ietf:wg:oauth:2.0:oob") : redirectUri;
+    return redirectUri.isEmpty() ? QStringLiteral("http://127.0.0.1") : redirectUri;
+}
+
+QString ConfigManager::oauthTokenUri() const
+{
+    const QString tokenUri = m_oauth.value(QStringLiteral("tokenUri")).toString().trimmed();
+    return tokenUri.isEmpty() ? QStringLiteral("https://oauth2.googleapis.com/token") : tokenUri;
 }
 
 QStringList ConfigManager::oauthScopes() const

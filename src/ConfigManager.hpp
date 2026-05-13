@@ -30,6 +30,7 @@ public:
     QString oauthClientId() const;
     QString oauthClientSecret() const;
     QString oauthRedirectUri() const;
+    QString oauthTokenUri() const;
     QStringList oauthScopes() const;
     QJsonObject oauthObject() const;
 
