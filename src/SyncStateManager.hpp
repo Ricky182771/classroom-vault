@@ -34,6 +34,13 @@ public:
         const QString &folderName,
         const QString &folderPath,
         const QJsonObject &metadata);
+    QJsonObject assignmentAttachments(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject attachmentRecord(const QString &courseId, const QString &assignmentId, const QString &attachmentKey) const;
+    void updateAttachment(
+        const QString &courseId,
+        const QString &assignmentId,
+        const QString &attachmentKey,
+        const QJsonObject &attachmentData);
 
     QString lastSync() const;
     void setLastSync(const QDateTime &dateTime);

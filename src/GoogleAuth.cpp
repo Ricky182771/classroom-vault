@@ -226,6 +226,22 @@ bool GoogleAuth::hasUsableAccessToken() const
     return m_expiryUtc > QDateTime::currentDateTimeUtc();
 }
 
+bool GoogleAuth::hasScope(const QString &scope) const
+{
+    const QString wanted = scope.trimmed();
+    if (wanted.isEmpty()) {
+        return false;
+    }
+
+    const QStringList granted = m_scope.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    return granted.contains(wanted);
+}
+
+QString GoogleAuth::grantedScopes() const
+{
+    return m_scope;
+}
+
 QDateTime GoogleAuth::tokenExpiryUtc() const
 {
     return m_expiryUtc;

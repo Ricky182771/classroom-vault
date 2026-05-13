@@ -21,6 +21,7 @@ void ConfigManager::loadDefaults()
     QJsonArray defaultScopes;
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.coursework.me.readonly"));
+    defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"));
 
     m_oauth = {
         {QStringLiteral("clientId"), QString()},
@@ -218,6 +219,15 @@ QStringList ConfigManager::oauthScopes() const
     QStringList scopes;
     for (const QJsonValue &scope : m_oauth.value(QStringLiteral("scopes")).toArray()) {
         scopes.append(scope.toString());
+    }
+    if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"))) {
+        scopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
+    }
+    if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/classroom.coursework.me.readonly"))) {
+        scopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.coursework.me.readonly"));
+    }
+    if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"))) {
+        scopes.append(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"));
     }
     return scopes;
 }

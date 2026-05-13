@@ -8,6 +8,7 @@ class QLineEdit;
 class QPushButton;
 class QLabel;
 class QProgressBar;
+class QCheckBox;
 class QTableWidget;
 class QTableWidgetItem;
 class QTextEdit;
@@ -28,6 +29,7 @@ private slots:
     void onLoadSampleData();
     void onLoadClassroom();
     void onSyncFolders();
+    void onDownloadAttachments();
 
     void onCoursesChanged(const QList<Course> &courses);
     void onAssignmentsChanged(const QList<Assignment> &assignments);
@@ -43,6 +45,9 @@ private slots:
         int updatedCount,
         int unchangedCount,
         int errorCount);
+    void onAttachmentProgress(int current, int total);
+    void onAttachmentFinished(int downloaded, int skipped, int errors);
+    void onAttachmentCountersChanged(int downloaded, int skipped, int errors);
 
     void appendLog(const QString &message);
     void appendError(const QString &message);
@@ -62,6 +67,8 @@ private:
     QPushButton *m_loadSampleButton = nullptr;
     QPushButton *m_loadClassroomButton = nullptr;
     QPushButton *m_syncButton = nullptr;
+    QPushButton *m_downloadAttachmentsButton = nullptr;
+    QCheckBox *m_autoDownloadAttachmentsCheck = nullptr;
 
     QTableWidget *m_coursesTable = nullptr;
     QTableWidget *m_assignmentsTable = nullptr;
@@ -74,6 +81,9 @@ private:
     QLabel *m_updatedCountLabel = nullptr;
     QLabel *m_unchangedCountLabel = nullptr;
     QLabel *m_errorCountLabel = nullptr;
+    QLabel *m_attachmentDownloadedLabel = nullptr;
+    QLabel *m_attachmentSkippedLabel = nullptr;
+    QLabel *m_attachmentErrorLabel = nullptr;
 
     bool m_updatingCourseTable = false;
     QList<Course> m_currentCourses;

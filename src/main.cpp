@@ -32,10 +32,14 @@ int main(int argc, char *argv[])
         QStringList{QStringLiteral("sample")},
         QStringLiteral("Ruta a sample_classroom_data.json (opcional)."),
         QStringLiteral("path"));
+    QCommandLineOption cliDownloadAttachmentsOption(
+        QStringList{QStringLiteral("cli-download-attachments")},
+        QStringLiteral("Descarga adjuntos en modo CLI despues de sincronizar carpetas."));
 
     parser.addOption(cliSyncOption);
     parser.addOption(basePathOption);
     parser.addOption(samplePathOption);
+    parser.addOption(cliDownloadAttachmentsOption);
     parser.process(app);
 
     if (parser.isSet(cliSyncOption)) {
@@ -43,6 +47,8 @@ int main(int argc, char *argv[])
         QTextStream err(stderr);
         int cliExitCode = 0;
         bool syncTriggered = false;
+        bool syncCompleted = false;
+        const bool cliDownloadAttachments = parser.isSet(cliDownloadAttachmentsOption);
 
         const QString basePath = parser.value(basePathOption).trimmed();
         if (basePath.isEmpty()) {
@@ -77,12 +83,34 @@ int main(int argc, char *argv[])
         QObject::connect(
             &syncManager,
             &SyncManager::syncFinished,
-            [&out](int newCount, int updatedCount, int unchangedCount, int errorCount) {
+            [&out, &syncManager, &syncCompleted, cliDownloadAttachments](int newCount, int updatedCount, int unchangedCount, int errorCount) {
+                syncCompleted = true;
                 out << "Sincronizacion finalizada. Nuevas: " << newCount
                     << ", actualizadas: " << updatedCount
                     << ", sin cambios: " << unchangedCount
                     << ", errores: " << errorCount << "\n";
                 out.flush();
+                if (cliDownloadAttachments) {
+                    syncManager.downloadAttachments();
+                } else {
+                    qApp->quit();
+                }
+            });
+
+        QObject::connect(
+            &syncManager,
+            &SyncManager::attachmentFinished,
+            [&out, &cliExitCode, &syncCompleted](int downloaded, int skipped, int errors) {
+                if (!syncCompleted) {
+                    return;
+                }
+                out << "Adjuntos finalizados. Descargados: " << downloaded
+                    << ", omitidos: " << skipped
+                    << ", errores: " << errors << "\n";
+                out.flush();
+                if (errors > 0) {
+                    cliExitCode = 1;
+                }
                 qApp->quit();
             });
 

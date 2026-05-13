@@ -10,6 +10,8 @@ SyncManager::SyncManager(QObject *parent)
     : QObject(parent)
     , m_syncStateManager()
     , m_classroomClient(this)
+    , m_driveClient(this)
+    , m_attachmentDownloader(this)
     , m_googleAuth(this)
 {
     m_configManager.load();
@@ -22,10 +24,17 @@ SyncManager::SyncManager(QObject *parent)
 
     refreshAuthConfig();
     m_googleAuth.loadFromJson(m_configManager.loadToken());
+    m_driveClient.setAccessToken(m_googleAuth.accessToken());
+
+    m_attachmentDownloader.setDriveClient(&m_driveClient);
+    m_attachmentDownloader.setSyncStateManager(&m_syncStateManager);
 
     connect(&m_classroomClient, &ClassroomClient::coursesFetched, this, &SyncManager::onCoursesFetched);
     connect(&m_classroomClient, &ClassroomClient::courseWorkFetched, this, &SyncManager::onCourseWorkFetched);
     connect(&m_classroomClient, &ClassroomClient::requestFailed, this, &SyncManager::onClientRequestFailed);
+    connect(&m_attachmentDownloader, &AttachmentDownloader::attachmentProgress, this, &SyncManager::onAttachmentProgress);
+    connect(&m_attachmentDownloader, &AttachmentDownloader::attachmentFinished, this, &SyncManager::onAttachmentFinished);
+    connect(&m_attachmentDownloader, &AttachmentDownloader::attachmentLog, this, &SyncManager::onAttachmentLog);
 
     connect(&m_googleAuth, &GoogleAuth::tokenUpdated, this, &SyncManager::onTokenUpdated);
     connect(&m_googleAuth, &GoogleAuth::authSucceeded, this, &SyncManager::onAuthSucceeded);
@@ -39,6 +48,7 @@ SyncManager::SyncManager(QObject *parent)
     });
 
     emitCounters();
+    emit attachmentCountersChanged(m_attachmentDownloaded, m_attachmentSkipped, m_attachmentErrors);
 }
 
 ConfigManager &SyncManager::configManager()
@@ -175,6 +185,16 @@ void SyncManager::fetchFromClassroom()
     emitCounters();
 }
 
+void SyncManager::setAutoDownloadAttachments(bool enabled)
+{
+    m_autoDownloadAttachments = enabled;
+}
+
+bool SyncManager::autoDownloadAttachments() const
+{
+    return m_autoDownloadAttachments;
+}
+
 void SyncManager::startFetchingCourses()
 {
     m_courses.clear();
@@ -272,6 +292,26 @@ void SyncManager::onClientRequestFailed(const QString &context, int httpStatus, 
     }
 }
 
+void SyncManager::onAttachmentProgress(int current, int total)
+{
+    emit attachmentProgress(current, total);
+}
+
+void SyncManager::onAttachmentFinished(int downloaded, int skipped, int errors)
+{
+    m_attachmentDownloaded = downloaded;
+    m_attachmentSkipped = skipped;
+    m_attachmentErrors = errors;
+
+    emit attachmentCountersChanged(m_attachmentDownloaded, m_attachmentSkipped, m_attachmentErrors);
+    emit attachmentFinished(downloaded, skipped, errors);
+}
+
+void SyncManager::onAttachmentLog(const QString &message)
+{
+    emit logMessage(message);
+}
+
 void SyncManager::onTokenUpdated()
 {
     if (!m_configManager.saveToken(m_googleAuth.toJson())) {
@@ -279,10 +319,12 @@ void SyncManager::onTokenUpdated()
         logErr(QStringLiteral("No se pudo guardar token.json"));
         emitCounters();
     }
+    m_driveClient.setAccessToken(m_googleAuth.accessToken());
 }
 
 void SyncManager::onAuthSucceeded()
 {
+    m_driveClient.setAccessToken(m_googleAuth.accessToken());
     if (m_waitingForTokenRefresh) {
         m_waitingForTokenRefresh = false;
         m_classroomClient.setAccessToken(m_googleAuth.accessToken());
@@ -451,6 +493,46 @@ void SyncManager::syncFolders()
             .arg(m_updatedCount)
             .arg(m_unchangedCount)
             .arg(m_errorCount));
+
+    if (m_autoDownloadAttachments) {
+        downloadAttachments();
+    }
+}
+
+void SyncManager::downloadAttachments()
+{
+    if (m_courses.isEmpty()) {
+        logErr(QStringLiteral("No hay cursos/tareas cargadas para descargar adjuntos."));
+        return;
+    }
+
+    if (!m_syncStateManager.load()) {
+        logErr(QStringLiteral("No se pudo leer sync_state.json antes de descargar adjuntos."));
+        return;
+    }
+
+    const QString driveScope = QStringLiteral("https://www.googleapis.com/auth/drive.readonly");
+    const bool hasDriveScope = m_googleAuth.hasScope(driveScope);
+    if (!hasDriveScope) {
+        emit logMessage(QStringLiteral("ERR   Se requiere permiso de lectura de Drive. Cierra sesion y vuelve a iniciar sesion para autorizar Drive."));
+    }
+
+    m_driveClient.setAccessToken(m_googleAuth.accessToken());
+    m_attachmentDownloader.setDriveDownloadsEnabled(hasDriveScope && !m_googleAuth.accessToken().trimmed().isEmpty());
+
+    m_attachmentDownloaded = 0;
+    m_attachmentSkipped = 0;
+    m_attachmentErrors = 0;
+    emit attachmentCountersChanged(m_attachmentDownloaded, m_attachmentSkipped, m_attachmentErrors);
+
+    QVector<Assignment> assignments;
+    const QList<Assignment> all = allAssignments();
+    assignments.reserve(all.size());
+    for (const Assignment &assignment : all) {
+        assignments.append(assignment);
+    }
+
+    m_attachmentDownloader.downloadAttachmentsForAssignments(assignments);
 }
 
 void SyncManager::logInfo(const QString &message)

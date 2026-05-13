@@ -1,7 +1,9 @@
 #pragma once
 
+#include "AttachmentDownloader.hpp"
 #include "ClassroomClient.hpp"
 #include "ConfigManager.hpp"
+#include "DriveClient.hpp"
 #include "FolderOrganizer.hpp"
 #include "GoogleAuth.hpp"
 #include "Models.hpp"
@@ -34,8 +36,11 @@ public:
 
     void loadSampleData(const QString &samplePath = QString());
     void fetchFromClassroom();
+    void setAutoDownloadAttachments(bool enabled);
+    bool autoDownloadAttachments() const;
 
     void syncFolders();
+    void downloadAttachments();
 
 signals:
     void coursesChanged(const QList<Course> &courses);
@@ -49,6 +54,9 @@ signals:
         int updatedCount,
         int unchangedCount,
         int errorCount);
+    void attachmentProgress(int current, int total);
+    void attachmentFinished(int downloaded, int skipped, int errors);
+    void attachmentCountersChanged(int downloaded, int skipped, int errors);
     void logMessage(const QString &message);
     void errorOccurred(const QString &message);
 
@@ -56,6 +64,9 @@ private slots:
     void onCoursesFetched(const QList<Course> &courses);
     void onCourseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
     void onClientRequestFailed(const QString &context, int httpStatus, const QString &message);
+    void onAttachmentProgress(int current, int total);
+    void onAttachmentFinished(int downloaded, int skipped, int errors);
+    void onAttachmentLog(const QString &message);
 
     void onTokenUpdated();
     void onAuthSucceeded();
@@ -77,6 +88,8 @@ private:
     SyncStateManager m_syncStateManager;
     FolderOrganizer m_folderOrganizer;
     ClassroomClient m_classroomClient;
+    DriveClient m_driveClient;
+    AttachmentDownloader m_attachmentDownloader;
     GoogleAuth m_googleAuth;
 
     QList<Course> m_courses;
@@ -90,4 +103,8 @@ private:
     int m_updatedCount = 0;
     int m_unchangedCount = 0;
     int m_errorCount = 0;
+    int m_attachmentDownloaded = 0;
+    int m_attachmentSkipped = 0;
+    int m_attachmentErrors = 0;
+    bool m_autoDownloadAttachments = false;
 };

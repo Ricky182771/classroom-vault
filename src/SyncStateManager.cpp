@@ -230,11 +230,60 @@ void SyncStateManager::updateAssignment(
         assignmentEntry.insert(QStringLiteral("lastUpdated"), now);
     }
     assignmentEntry.insert(QStringLiteral("lastSeen"), now);
+    if (!assignmentEntry.contains(QStringLiteral("attachments")) || !assignmentEntry.value(QStringLiteral("attachments")).isObject()) {
+        assignmentEntry.insert(QStringLiteral("attachments"), QJsonObject());
+    }
 
     assignments.insert(assignment.id, assignmentEntry);
     courseEntry.insert(QStringLiteral("assignments"), assignments);
 
     courses.insert(course.id, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+QJsonObject SyncStateManager::assignmentAttachments(const QString &courseId, const QString &assignmentId) const
+{
+    return assignmentObject(courseId, assignmentId).value(QStringLiteral("attachments")).toObject();
+}
+
+QJsonObject SyncStateManager::attachmentRecord(
+    const QString &courseId,
+    const QString &assignmentId,
+    const QString &attachmentKey) const
+{
+    return assignmentAttachments(courseId, assignmentId).value(attachmentKey).toObject();
+}
+
+void SyncStateManager::updateAttachment(
+    const QString &courseId,
+    const QString &assignmentId,
+    const QString &attachmentKey,
+    const QJsonObject &attachmentData)
+{
+    if (courseId.trimmed().isEmpty() || assignmentId.trimmed().isEmpty() || attachmentKey.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+
+    if (!courseEntry.contains(QStringLiteral("assignments")) || !courseEntry.value(QStringLiteral("assignments")).isObject()) {
+        courseEntry.insert(QStringLiteral("assignments"), QJsonObject());
+    }
+
+    QJsonObject assignments = courseEntry.value(QStringLiteral("assignments")).toObject();
+    QJsonObject assignmentEntry = assignments.value(assignmentId).toObject();
+    if (!assignmentEntry.contains(QStringLiteral("attachments")) || !assignmentEntry.value(QStringLiteral("attachments")).isObject()) {
+        assignmentEntry.insert(QStringLiteral("attachments"), QJsonObject());
+    }
+
+    QJsonObject attachments = assignmentEntry.value(QStringLiteral("attachments")).toObject();
+    attachments.insert(attachmentKey, attachmentData);
+    assignmentEntry.insert(QStringLiteral("attachments"), attachments);
+
+    assignments.insert(assignmentId, assignmentEntry);
+    courseEntry.insert(QStringLiteral("assignments"), assignments);
+    courses.insert(courseId, courseEntry);
     m_root.insert(QStringLiteral("courses"), courses);
 }
 

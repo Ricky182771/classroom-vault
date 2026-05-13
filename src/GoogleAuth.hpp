@@ -35,6 +35,8 @@ public:
     QString accessToken() const;
     QString refreshToken() const;
     bool hasUsableAccessToken() const;
+    bool hasScope(const QString &scope) const;
+    QString grantedScopes() const;
     QDateTime tokenExpiryUtc() const;
 
 signals:

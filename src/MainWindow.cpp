@@ -5,6 +5,7 @@
 #include "Utils.hpp"
 
 #include <QCoreApplication>
+#include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -36,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     setupUi();
     connectSignals();
+    m_syncManager->setAutoDownloadAttachments(m_autoDownloadAttachmentsCheck->isChecked());
 
     m_basePathEdit->setText(m_syncManager->basePath());
 
@@ -67,12 +69,16 @@ void MainWindow::setupUi()
     m_loadSampleButton = new QPushButton(QStringLiteral("Cargar datos de prueba"), central);
     m_loadClassroomButton = new QPushButton(QStringLiteral("Cargar Classroom"), central);
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar carpetas"), central);
+    m_downloadAttachmentsButton = new QPushButton(QStringLiteral("Descargar adjuntos"), central);
+    m_autoDownloadAttachmentsCheck = new QCheckBox(QStringLiteral("Descargar adjuntos al sincronizar"), central);
     m_clearLogsButton = new QPushButton(QStringLiteral("Limpiar logs"), central);
 
     buttonRow->addWidget(m_loginButton);
     buttonRow->addWidget(m_loadSampleButton);
     buttonRow->addWidget(m_loadClassroomButton);
     buttonRow->addWidget(m_syncButton);
+    buttonRow->addWidget(m_downloadAttachmentsButton);
+    buttonRow->addWidget(m_autoDownloadAttachmentsCheck);
     buttonRow->addWidget(m_clearLogsButton);
     buttonRow->addStretch(1);
 
@@ -83,6 +89,9 @@ void MainWindow::setupUi()
     m_updatedCountLabel = new QLabel(QStringLiteral("Actualizadas: 0"), central);
     m_unchangedCountLabel = new QLabel(QStringLiteral("Sin cambios: 0"), central);
     m_errorCountLabel = new QLabel(QStringLiteral("Errores: 0"), central);
+    m_attachmentDownloadedLabel = new QLabel(QStringLiteral("Adjuntos descargados: 0"), central);
+    m_attachmentSkippedLabel = new QLabel(QStringLiteral("Adjuntos omitidos: 0"), central);
+    m_attachmentErrorLabel = new QLabel(QStringLiteral("Errores adjuntos: 0"), central);
 
     counterRow->addWidget(m_coursesCountLabel);
     counterRow->addWidget(m_assignmentsCountLabel);
@@ -90,6 +99,9 @@ void MainWindow::setupUi()
     counterRow->addWidget(m_updatedCountLabel);
     counterRow->addWidget(m_unchangedCountLabel);
     counterRow->addWidget(m_errorCountLabel);
+    counterRow->addWidget(m_attachmentDownloadedLabel);
+    counterRow->addWidget(m_attachmentSkippedLabel);
+    counterRow->addWidget(m_attachmentErrorLabel);
     counterRow->addStretch(1);
 
     m_progressBar = new QProgressBar(central);
@@ -145,6 +157,10 @@ void MainWindow::connectSignals()
     connect(m_loadSampleButton, &QPushButton::clicked, this, &MainWindow::onLoadSampleData);
     connect(m_loadClassroomButton, &QPushButton::clicked, this, &MainWindow::onLoadClassroom);
     connect(m_syncButton, &QPushButton::clicked, this, &MainWindow::onSyncFolders);
+    connect(m_downloadAttachmentsButton, &QPushButton::clicked, this, &MainWindow::onDownloadAttachments);
+    connect(m_autoDownloadAttachmentsCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        m_syncManager->setAutoDownloadAttachments(checked);
+    });
 
     connect(m_coursesTable, &QTableWidget::itemChanged, this, &MainWindow::onCourseTableItemChanged);
     connect(m_assignmentsTable, &QTableWidget::cellDoubleClicked, this, &MainWindow::onAssignmentDoubleClicked);
@@ -154,6 +170,9 @@ void MainWindow::connectSignals()
     connect(m_syncManager, &SyncManager::syncProgress, this, &MainWindow::onSyncProgress);
     connect(m_syncManager, &SyncManager::syncFinished, this, &MainWindow::onSyncFinished);
     connect(m_syncManager, &SyncManager::countersChanged, this, &MainWindow::onCountersChanged);
+    connect(m_syncManager, &SyncManager::attachmentProgress, this, &MainWindow::onAttachmentProgress);
+    connect(m_syncManager, &SyncManager::attachmentFinished, this, &MainWindow::onAttachmentFinished);
+    connect(m_syncManager, &SyncManager::attachmentCountersChanged, this, &MainWindow::onAttachmentCountersChanged);
     connect(m_syncManager, &SyncManager::logMessage, this, &MainWindow::appendLog);
     connect(m_syncManager, &SyncManager::errorOccurred, this, &MainWindow::appendError);
 }
@@ -292,6 +311,14 @@ void MainWindow::onSyncFolders()
     m_syncManager->syncFolders();
 }
 
+void MainWindow::onDownloadAttachments()
+{
+    m_progressBar->setRange(0, 1);
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat(QStringLiteral("Preparando adjuntos..."));
+    m_syncManager->downloadAttachments();
+}
+
 void MainWindow::onCoursesChanged(const QList<Course> &courses)
 {
     m_currentCourses = courses;
@@ -417,6 +444,39 @@ void MainWindow::onSyncFinished(int newCount, int updatedCount, int unchangedCou
             .arg(updatedCount)
             .arg(unchangedCount)
             .arg(errorCount));
+}
+
+void MainWindow::onAttachmentProgress(int current, int total)
+{
+    if (total <= 0) {
+        m_progressBar->setRange(0, 1);
+        m_progressBar->setValue(0);
+        m_progressBar->setFormat(QStringLiteral("Sin adjuntos"));
+        return;
+    }
+
+    m_progressBar->setRange(0, total);
+    m_progressBar->setValue(current);
+    m_progressBar->setFormat(QStringLiteral("Adjuntos %v/%m"));
+    statusBar()->showMessage(QStringLiteral("Descargando adjuntos %1/%2...").arg(current).arg(total));
+}
+
+void MainWindow::onAttachmentFinished(int downloaded, int skipped, int errors)
+{
+    m_progressBar->setFormat(QStringLiteral("Adjuntos completados"));
+    statusBar()->showMessage(QStringLiteral("Descarga de adjuntos completada."), 6000);
+    appendLog(
+        QStringLiteral("INFO  Adjuntos -> descargados: %1, omitidos: %2, errores: %3")
+            .arg(downloaded)
+            .arg(skipped)
+            .arg(errors));
+}
+
+void MainWindow::onAttachmentCountersChanged(int downloaded, int skipped, int errors)
+{
+    m_attachmentDownloadedLabel->setText(QStringLiteral("Adjuntos descargados: %1").arg(downloaded));
+    m_attachmentSkippedLabel->setText(QStringLiteral("Adjuntos omitidos: %1").arg(skipped));
+    m_attachmentErrorLabel->setText(QStringLiteral("Errores adjuntos: %1").arg(errors));
 }
 
 void MainWindow::onCountersChanged(

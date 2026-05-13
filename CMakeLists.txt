@@ -28,6 +28,8 @@ qt_add_executable(classroom-vault
     src/SyncStateManager.cpp
     src/DriveClient.hpp
     src/DriveClient.cpp
+    src/AttachmentDownloader.hpp
+    src/AttachmentDownloader.cpp
     src/Models.hpp
     src/Utils.hpp
     resources/app.qrc
