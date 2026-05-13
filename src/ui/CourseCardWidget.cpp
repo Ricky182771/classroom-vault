@@ -28,7 +28,8 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
     bannerLayout->addStretch(1);
     m_statusBadge = new QLabel(QStringLiteral("Sin sync"), m_banner);
     m_statusBadge->setObjectName(QStringLiteral("Section"));
-    m_statusBadge->setStyleSheet(QStringLiteral("padding:4px 8px;border-radius:8px;font-size:11px;"));
+    m_statusBadge->setStyleSheet(
+        QStringLiteral("padding:4px 8px;border-radius:8px;font-size:11px;background:#30323A;border:1px solid #3A3D46;"));
     bannerLayout->addWidget(m_statusBadge);
 
     root->addWidget(m_banner);
@@ -40,7 +41,7 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
 
     m_nameLabel = new QLabel(QStringLiteral("Materia"), content);
     m_nameLabel->setWordWrap(true);
-    m_nameLabel->setStyleSheet(QStringLiteral("font-weight:700;font-size:14px;"));
+    m_nameLabel->setStyleSheet(QStringLiteral("font-weight:700;font-size:14px;background:transparent;border:none;"));
     contentLayout->addWidget(m_nameLabel);
 
     m_codeLabel = new QLabel(QStringLiteral("Codigo"), content);

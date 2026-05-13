@@ -57,12 +57,13 @@ DashboardWidget::DashboardWidget(QWidget *parent)
 
     auto *titleRow = new QHBoxLayout();
     auto *title = new QLabel(QStringLiteral("Cursos respaldados"), courseSection);
-    title->setStyleSheet(QStringLiteral("font-weight:700;font-size:15px;"));
+    title->setStyleSheet(QStringLiteral("font-weight:700;font-size:15px;background:transparent;border:none;"));
     titleRow->addWidget(title);
 
     m_coursesCountLabel = new QLabel(QStringLiteral("0"), courseSection);
     m_coursesCountLabel->setObjectName(QStringLiteral("Section"));
-    m_coursesCountLabel->setStyleSheet(QStringLiteral("padding:2px 8px;border-radius:6px;"));
+    m_coursesCountLabel->setStyleSheet(
+        QStringLiteral("padding:2px 8px;border-radius:6px;background:#30323A;border:1px solid #3A3D46;"));
     titleRow->addWidget(m_coursesCountLabel);
 
     auto *subtitle = new QLabel(

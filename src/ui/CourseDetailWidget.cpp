@@ -32,7 +32,7 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     topRow->addWidget(m_backButton);
 
     m_titleLabel = new QLabel(QStringLiteral("Materia"), headerCard);
-    m_titleLabel->setStyleSheet(QStringLiteral("font-size:18px;font-weight:700;"));
+    m_titleLabel->setStyleSheet(QStringLiteral("font-size:18px;font-weight:700;background:transparent;border:none;"));
     topRow->addWidget(m_titleLabel, 1);
 
     m_statusLabel = new QLabel(QStringLiteral("Sin sync"), headerCard);

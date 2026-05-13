@@ -25,7 +25,7 @@ AssignmentListItemWidget::AssignmentListItemWidget(QWidget *parent)
     titleCol->setSpacing(3);
 
     m_titleLabel = new QLabel(QStringLiteral("Tarea"), this);
-    m_titleLabel->setStyleSheet(QStringLiteral("font-weight:700;font-size:14px;"));
+    m_titleLabel->setStyleSheet(QStringLiteral("font-weight:700;font-size:14px;background:transparent;border:none;"));
     titleCol->addWidget(m_titleLabel);
 
     m_descriptionLabel = new QLabel(QStringLiteral("Sin descripcion"), this);

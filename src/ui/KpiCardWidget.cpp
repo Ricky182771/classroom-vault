@@ -25,7 +25,7 @@ KpiCardWidget::KpiCardWidget(QWidget *parent)
     layout->addLayout(topRow);
 
     m_value = new QLabel(QStringLiteral("0"), this);
-    m_value->setStyleSheet(QStringLiteral("font-size: 24px; font-weight: 700;"));
+    m_value->setStyleSheet(QStringLiteral("font-size: 24px; font-weight: 700; background: transparent; border: none;"));
     layout->addWidget(m_value);
 }
 
@@ -51,5 +51,5 @@ void KpiCardWidget::setData(const KpiData &data)
     }
 
     m_value->setStyleSheet(
-        QStringLiteral("font-size: 24px; font-weight: 700; color: %1;").arg(color));
+        QStringLiteral("font-size: 24px; font-weight: 700; color: %1; background: transparent; border: none;").arg(color));
 }

@@ -20,7 +20,7 @@ SettingsViewWidget::SettingsViewWidget(QWidget *parent)
     root->setSpacing(12);
 
     auto *title = new QLabel(QStringLiteral("Configuracion"), this);
-    title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
+    title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;background:transparent;border:none;"));
     root->addWidget(title);
 
     auto *generalGroup = new QGroupBox(QStringLiteral("General"), this);

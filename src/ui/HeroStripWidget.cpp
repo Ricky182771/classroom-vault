@@ -17,14 +17,15 @@ HeroStripWidget::HeroStripWidget(QWidget *parent)
     auto *logo = new QLabel(QStringLiteral("CV"), this);
     logo->setAlignment(Qt::AlignCenter);
     logo->setFixedSize(42, 42);
-    logo->setStyleSheet(QStringLiteral("background: rgba(91,92,246,0.2); border:1px solid #5B5CF6; border-radius:10px; font-weight:700;"));
+    logo->setStyleSheet(
+        QStringLiteral("background: rgba(91,92,246,0.2); border:1px solid #5B5CF6; border-radius:10px; font-weight:700;"));
     layout->addWidget(logo);
 
     auto *textCol = new QVBoxLayout();
     textCol->setSpacing(4);
 
     auto *title = new QLabel(QStringLiteral("Tu archivo historico de Classroom"), this);
-    title->setStyleSheet(QStringLiteral("font-size: 18px; font-weight: 700;"));
+    title->setStyleSheet(QStringLiteral("font-size: 18px; font-weight: 700; background: transparent; border: none;"));
     textCol->addWidget(title);
 
     auto *subtitle = new QLabel(
@@ -42,7 +43,8 @@ HeroStripWidget::HeroStripWidget(QWidget *parent)
 
     m_statusLabel = new QLabel(QStringLiteral("API estable · token OK"), this);
     m_statusLabel->setObjectName(QStringLiteral("Section"));
-    m_statusLabel->setStyleSheet(QStringLiteral("padding:6px 10px;border-radius:8px;"));
+    m_statusLabel->setStyleSheet(
+        QStringLiteral("padding:6px 10px;border-radius:8px;background:#30323A;border:1px solid #3A3D46;"));
     rightCol->addWidget(m_statusLabel, 0, Qt::AlignRight);
 
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar"), this);

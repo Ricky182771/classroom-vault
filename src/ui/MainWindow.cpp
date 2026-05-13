@@ -91,6 +91,7 @@ void MainWindow::setupUi()
     resize(1440, 920);
 
     auto *central = new QWidget(this);
+    central->setObjectName(QStringLiteral("AppRoot"));
     auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);

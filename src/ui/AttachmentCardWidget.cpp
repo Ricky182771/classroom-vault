@@ -21,7 +21,7 @@ AttachmentCardWidget::AttachmentCardWidget(QWidget *parent)
     m_iconLabel->setFixedWidth(30);
     m_iconLabel->setAlignment(Qt::AlignCenter);
     m_iconLabel->setObjectName(QStringLiteral("Section"));
-    m_iconLabel->setStyleSheet(QStringLiteral("border-radius:6px;padding:4px;"));
+    m_iconLabel->setStyleSheet(QStringLiteral("border-radius:6px;padding:4px;background:#30323A;border:1px solid #3A3D46;"));
     top->addWidget(m_iconLabel);
 
     auto *labelsCol = new QVBoxLayout();
@@ -29,7 +29,7 @@ AttachmentCardWidget::AttachmentCardWidget(QWidget *parent)
 
     m_titleLabel = new QLabel(QStringLiteral("Adjunto"), this);
     m_titleLabel->setWordWrap(true);
-    m_titleLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
+    m_titleLabel->setStyleSheet(QStringLiteral("font-weight:600;background:transparent;border:none;"));
     labelsCol->addWidget(m_titleLabel);
 
     m_infoLabel = new QLabel(QStringLiteral("Tipo"), this);

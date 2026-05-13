@@ -15,7 +15,7 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     layout->setSpacing(8);
 
     auto *appLabel = new QLabel(QStringLiteral("Classroom Vault"), this);
-    appLabel->setStyleSheet(QStringLiteral("font-size:15px;font-weight:700;"));
+    appLabel->setStyleSheet(QStringLiteral("font-size:15px;font-weight:700;background:transparent;border:none;"));
     layout->addWidget(appLabel);
 
     m_titleLabel = new QLabel(QStringLiteral("Inicio"), this);
@@ -36,7 +36,7 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     stateLayout->setSpacing(6);
 
     auto *dot = new QLabel(QStringLiteral("●"), stateTag);
-    dot->setStyleSheet(QStringLiteral("color:#8FD19E;font-size:11px;"));
+    dot->setStyleSheet(QStringLiteral("color:#8FD19E;font-size:11px;background:transparent;border:none;"));
     stateLayout->addWidget(dot);
 
     m_connectionLabel = new QLabel(QStringLiteral("Conectado"), stateTag);
@@ -60,7 +60,7 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     avatar->setAlignment(Qt::AlignCenter);
     avatar->setFixedSize(30, 30);
     avatar->setObjectName(QStringLiteral("Section"));
-    avatar->setStyleSheet(QStringLiteral("border-radius:15px;font-weight:700;"));
+    avatar->setStyleSheet(QStringLiteral("border-radius:15px;font-weight:700;background:#30323A;border:1px solid #3A3D46;"));
     layout->addWidget(avatar);
 
     connect(m_syncButton, &QPushButton::clicked, this, &TopBarWidget::syncRequested);

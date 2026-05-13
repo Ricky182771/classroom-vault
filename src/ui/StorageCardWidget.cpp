@@ -14,7 +14,7 @@ StorageCardWidget::StorageCardWidget(QWidget *parent)
     layout->setSpacing(6);
 
     auto *title = new QLabel(QStringLiteral("Almacenamiento"), this);
-    title->setStyleSheet(QStringLiteral("font-weight: 700;"));
+    title->setStyleSheet(QStringLiteral("font-weight: 700; background: transparent; border: none;"));
     layout->addWidget(title);
 
     m_pathLabel = new QLabel(QStringLiteral("Ruta: —"), this);

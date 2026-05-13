@@ -18,7 +18,7 @@ ActivityPanelWidget::ActivityPanelWidget(QWidget *parent)
 
     auto *titleRow = new QHBoxLayout();
     auto *title = new QLabel(QStringLiteral("Actividad reciente"), this);
-    title->setStyleSheet(QStringLiteral("font-weight: 700;"));
+    title->setStyleSheet(QStringLiteral("font-weight: 700; background: transparent; border: none;"));
     titleRow->addWidget(title);
     titleRow->addStretch(1);
     layout->addLayout(titleRow);

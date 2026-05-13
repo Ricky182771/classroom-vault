@@ -15,7 +15,7 @@ AttachmentsViewWidget::AttachmentsViewWidget(QWidget *parent)
     layout->setSpacing(10);
 
     m_title = new QLabel(QStringLiteral("Adjuntos"), this);
-    m_title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
+    m_title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;background:transparent;border:none;"));
     layout->addWidget(m_title);
 
     m_table = new QTableWidget(this);

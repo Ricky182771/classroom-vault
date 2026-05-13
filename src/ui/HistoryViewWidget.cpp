@@ -22,7 +22,7 @@ HistoryViewWidget::HistoryViewWidget(QWidget *parent)
     layout->setSpacing(10);
 
     auto *title = new QLabel(QStringLiteral("Historial"), this);
-    title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
+    title->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;background:transparent;border:none;"));
     layout->addWidget(title);
 
     auto *toolbar = new QHBoxLayout();

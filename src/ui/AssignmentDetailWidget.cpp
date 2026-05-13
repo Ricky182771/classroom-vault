@@ -36,7 +36,7 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     headerLayout->addLayout(topRow);
 
     m_titleLabel = new QLabel(QStringLiteral("Tarea"), headerCard);
-    m_titleLabel->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;"));
+    m_titleLabel->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;background:transparent;border:none;"));
     m_titleLabel->setWordWrap(true);
     headerLayout->addWidget(m_titleLabel);
 
@@ -81,7 +81,7 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     descriptionLayout->setSpacing(8);
 
     auto *descriptionTitle = new QLabel(QStringLiteral("Descripcion"), descriptionCard);
-    descriptionTitle->setStyleSheet(QStringLiteral("font-weight:700;"));
+    descriptionTitle->setStyleSheet(QStringLiteral("font-weight:700;background:transparent;border:none;"));
     descriptionLayout->addWidget(descriptionTitle);
 
     m_descriptionLabel = new QLabel(QStringLiteral("Esta tarea no tiene descripcion guardada."), descriptionCard);
@@ -89,7 +89,7 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     descriptionLayout->addWidget(m_descriptionLabel);
 
     auto *evidenceTitle = new QLabel(QStringLiteral("Evidencia local"), descriptionCard);
-    evidenceTitle->setStyleSheet(QStringLiteral("font-weight:700;"));
+    evidenceTitle->setStyleSheet(QStringLiteral("font-weight:700;background:transparent;border:none;"));
     descriptionLayout->addWidget(evidenceTitle);
 
     m_evidenceLabel = new QLabel(QStringLiteral("Sin evidencia"), descriptionCard);
@@ -100,7 +100,7 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     root->addWidget(descriptionCard);
 
     auto *attachmentsTitle = new QLabel(QStringLiteral("Adjuntos"), this);
-    attachmentsTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
+    attachmentsTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;background:transparent;border:none;"));
     root->addWidget(attachmentsTitle);
 
     m_attachmentsScroll = new QScrollArea(this);

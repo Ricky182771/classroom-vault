@@ -126,13 +126,13 @@ void SidebarWidget::rebuildLayout()
 
     auto *title = new QLabel(m_brandRow);
     title->setText(m_compact ? QStringLiteral("CV") : QStringLiteral("Classroom Vault"));
-    title->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: 700;"));
+    title->setStyleSheet(QStringLiteral("font-size: 14px; font-weight: 700; background: transparent; border: none;"));
     brandLayout->addWidget(title);
 
     if (!m_compact) {
         auto *subtitle = new QLabel(QStringLiteral("v0.x · TareaSync"), m_brandRow);
         subtitle->setProperty("subtle", true);
-        subtitle->setStyleSheet(QStringLiteral("font-size: 11px;"));
+        subtitle->setStyleSheet(QStringLiteral("font-size: 11px; background: transparent; border: none;"));
         brandLayout->addWidget(subtitle);
     }
 

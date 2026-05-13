@@ -13,10 +13,18 @@ QString darkStyleSheet()
     selection-background-color: rgba(91, 92, 246, 0.35);
     selection-color: #F1F1F1;
 }
-QWidget {
+QMainWindow,
+QWidget#AppRoot {
     background: #1E1F24;
+}
+QWidget {
+    background: transparent;
     color: #F1F1F1;
     font-size: 13px;
+}
+QLabel {
+    background: transparent;
+    border: 0;
 }
 QFrame#Sidebar,
 QFrame#TopBar,
@@ -46,6 +54,12 @@ QFrame#Section {
     background: #2A2C33;
     border: 1px solid #3A3D46;
     border-radius: 12px;
+}
+QLabel#Section {
+    background: #30323A;
+    border: 1px solid #3A3D46;
+    border-radius: 8px;
+    padding: 3px 8px;
 }
 QFrame#CourseBanner {
     border-top-left-radius: 11px;
@@ -116,6 +130,14 @@ QPlainTextEdit:focus,
 QTextEdit:focus,
 QComboBox:focus {
     border-color: #5B5CF6;
+}
+QComboBox::drop-down {
+    border: 0;
+    width: 20px;
+}
+QComboBox::down-arrow {
+    image: none;
+    border: 0;
 }
 QHeaderView::section {
     background: #232429;
