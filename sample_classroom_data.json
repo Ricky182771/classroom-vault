@@ -1,0 +1,74 @@
+{
+  "courses": [
+    {
+      "id": "1234567890",
+      "name": "Programacion",
+      "section": "A",
+      "descriptionHeading": "Algoritmos y estructuras",
+      "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA"
+    },
+    {
+      "id": "9876543210",
+      "name": "Matematicas Discretas",
+      "section": "B",
+      "descriptionHeading": "Logica y grafos",
+      "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA"
+    }
+  ],
+  "courseWork": {
+    "1234567890": [
+      {
+        "id": "a1",
+        "title": "Reporte de diagramas de flujo",
+        "description": "Subir PDF con los ejercicios 1 al 5.",
+        "workType": "ASSIGNMENT",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/MQ",
+        "dueDate": {
+          "year": 2026,
+          "month": 5,
+          "day": 12
+        },
+        "dueTime": {
+          "hours": 23,
+          "minutes": 59
+        }
+      },
+      {
+        "id": "a2",
+        "title": "",
+        "description": "Resolver ejercicio extra de recursion.",
+        "workType": "ASSIGNMENT",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/Mg"
+      }
+    ],
+    "9876543210": [
+      {
+        "id": "b1",
+        "title": "Demostraciones por induccion",
+        "description": "Entregar libreta escaneada.",
+        "workType": "ASSIGNMENT",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/Mw",
+        "dueDate": {
+          "year": 2026,
+          "month": 5,
+          "day": 20
+        },
+        "dueTime": {
+          "hours": 20,
+          "minutes": 30
+        }
+      },
+      {
+        "id": "b2",
+        "title": "Material de lectura semana 3",
+        "description": "Solo referencia, sin entrega.",
+        "workType": "MATERIAL",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/NA"
+      }
+    ]
+  }
+}

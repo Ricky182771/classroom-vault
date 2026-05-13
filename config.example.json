@@ -1,0 +1,15 @@
+{
+  "basePath": "",
+  "courseSemesters": {
+    "1234567890": "Semestre 2"
+  },
+  "oauth": {
+    "clientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "clientSecret": "YOUR_CLIENT_SECRET",
+    "redirectUri": "urn:ietf:wg:oauth:2.0:oob",
+    "scopes": [
+      "https://www.googleapis.com/auth/classroom.courses.readonly",
+      "https://www.googleapis.com/auth/classroom.coursework.me.readonly"
+    ]
+  }
+}

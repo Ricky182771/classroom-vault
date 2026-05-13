@@ -1,0 +1,50 @@
+#pragma once
+
+#include <QHash>
+#include <QJsonObject>
+#include <QString>
+#include <QStringList>
+
+class ConfigManager {
+public:
+    ConfigManager();
+
+    bool load();
+    bool save() const;
+
+    QString configDir() const;
+    QString configPath() const;
+    QString syncStatePath() const;
+    QString tokenPath() const;
+
+    QString basePath() const;
+    void setBasePath(const QString &path);
+
+    QString semesterForCourse(const QString &courseId) const;
+    void setSemesterForCourse(const QString &courseId, const QString &semester);
+    QHash<QString, QString> semesterMapping() const;
+    void setSemesterMapping(const QHash<QString, QString> &mapping);
+
+    QString oauthClientId() const;
+    QString oauthClientSecret() const;
+    QString oauthRedirectUri() const;
+    QStringList oauthScopes() const;
+    QJsonObject oauthObject() const;
+
+    void setOauthObject(const QJsonObject &oauth);
+
+    QJsonObject loadSyncState() const;
+    bool saveSyncState(const QJsonObject &state) const;
+
+    QJsonObject loadToken() const;
+    bool saveToken(const QJsonObject &token) const;
+
+private:
+    bool ensureConfigDir() const;
+    void loadDefaults();
+
+    QString m_configDir;
+    QString m_basePath;
+    QHash<QString, QString> m_courseSemesters;
+    QJsonObject m_oauth;
+};
