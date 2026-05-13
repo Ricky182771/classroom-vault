@@ -25,20 +25,38 @@ QString FolderOrganizer::tasksRootPath() const
 
 QString FolderOrganizer::sanitizeName(const QString &name)
 {
-    QString cleaned = name;
-    cleaned.replace(QRegularExpression(QStringLiteral("[/\\\\:*?\"<>|]")), QStringLiteral(" "));
-    cleaned = cleaned.simplified().trimmed();
+    return sanitizeFileName(name);
+}
 
-    if (cleaned.isEmpty()) {
-        cleaned = QStringLiteral("Sin nombre");
+QString FolderOrganizer::sanitizeFileName(QString name)
+{
+    name.replace(QRegularExpression(QStringLiteral("[\\r\\n\\t]+")), QStringLiteral(" "));
+    name.replace(QRegularExpression(QStringLiteral("[/\\\\:*?\"<>|]")), QStringLiteral(" "));
+    name = name.simplified().trimmed();
+
+    while (!name.isEmpty() && (name.endsWith(QLatin1Char(' ')) || name.endsWith(QLatin1Char('.')))) {
+        name.chop(1);
+    }
+
+    if (name.isEmpty()) {
+        name = QStringLiteral("Sin nombre");
     }
 
     constexpr int maxLen = 120;
-    if (cleaned.size() > maxLen) {
-        cleaned = cleaned.left(maxLen).trimmed();
+    if (name.size() > maxLen) {
+        name = name.left(maxLen).trimmed();
     }
 
-    return cleaned;
+    while (!name.isEmpty() && (name.endsWith(QLatin1Char(' ')) || name.endsWith(QLatin1Char('.')))) {
+        name.chop(1);
+    }
+
+    return name.isEmpty() ? QStringLiteral("Sin nombre") : name;
+}
+
+QString FolderOrganizer::buildAssignmentFolderName(const Assignment &assignment)
+{
+    return sanitizeFileName(Utils::assignmentFolderLabel(assignment));
 }
 
 bool FolderOrganizer::ensureDir(const QString &path) const
@@ -52,7 +70,7 @@ bool FolderOrganizer::ensureDir(const QString &path) const
 
 QString FolderOrganizer::createSemesterFolder(const QString &semester) const
 {
-    const QString semesterName = sanitizeName(semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : semester);
+    const QString semesterName = sanitizeFileName(semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : semester);
     const QString semesterPath = QDir(tasksRootPath()).filePath(semesterName);
     ensureDir(semesterPath);
     return semesterPath;
@@ -61,7 +79,7 @@ QString FolderOrganizer::createSemesterFolder(const QString &semester) const
 QString FolderOrganizer::createCourseFolder(const QString &semester, const QString &courseName) const
 {
     const QString semesterPath = createSemesterFolder(semester);
-    const QString courseFolderName = sanitizeName(courseName.trimmed().isEmpty() ? QStringLiteral("Materia sin nombre") : courseName);
+    const QString courseFolderName = sanitizeFileName(courseName.trimmed().isEmpty() ? QStringLiteral("Materia sin nombre") : courseName);
     const QString coursePath = QDir(semesterPath).filePath(courseFolderName);
     ensureDir(coursePath);
     return coursePath;
@@ -83,41 +101,39 @@ QString FolderOrganizer::metadataAssignmentId(const QString &assignmentDir) cons
     return doc.object().value(QStringLiteral("assignmentId")).toString();
 }
 
-QString FolderOrganizer::makeUniqueAssignmentName(
-    const QString &coursePath,
-    const QString &preferredName,
-    const Assignment &assignment) const
+QString FolderOrganizer::resolveFolderConflict(const QString &desiredPath, const QString &assignmentId) const
 {
-    QString candidate = sanitizeName(preferredName);
-    QString candidatePath = QDir(coursePath).filePath(candidate);
-
-    if (!QDir(candidatePath).exists()) {
-        return candidate;
+    if (!QFileInfo::exists(desiredPath)) {
+        return desiredPath;
     }
 
-    if (metadataAssignmentId(candidatePath) == assignment.id) {
-        return candidate;
+    if (metadataAssignmentId(desiredPath) == assignmentId) {
+        return desiredPath;
     }
 
-    const QString idSuffix = assignment.id.isEmpty() ? QStringLiteral("unknown") : assignment.id.left(8);
-    candidate = sanitizeName(preferredName + QStringLiteral(" [") + idSuffix + QStringLiteral("]"));
-    candidatePath = QDir(coursePath).filePath(candidate);
+    const QFileInfo desiredInfo(desiredPath);
+    const QString parentPath = desiredInfo.absolutePath();
+    const QString baseName = desiredInfo.fileName();
+    const QString suffix = assignmentId.trimmed().isEmpty() ? QStringLiteral("id") : assignmentId.left(6);
 
-    if (!QDir(candidatePath).exists() || metadataAssignmentId(candidatePath) == assignment.id) {
-        return candidate;
+    QString candidateName = sanitizeFileName(baseName + QStringLiteral(" [") + suffix + QStringLiteral("]"));
+    QString candidatePath = QDir(parentPath).filePath(candidateName);
+
+    if (!QFileInfo::exists(candidatePath) || metadataAssignmentId(candidatePath) == assignmentId) {
+        return candidatePath;
     }
 
     int index = 2;
     while (index < 1000) {
-        const QString indexed = sanitizeName(candidate + QStringLiteral(" (") + QString::number(index) + QStringLiteral(")"));
-        const QString indexedPath = QDir(coursePath).filePath(indexed);
-        if (!QDir(indexedPath).exists() || metadataAssignmentId(indexedPath) == assignment.id) {
-            return indexed;
+        candidateName = sanitizeFileName(baseName + QStringLiteral(" [") + suffix + QStringLiteral("] (") + QString::number(index) + QStringLiteral(")"));
+        candidatePath = QDir(parentPath).filePath(candidateName);
+        if (!QFileInfo::exists(candidatePath) || metadataAssignmentId(candidatePath) == assignmentId) {
+            return candidatePath;
         }
         ++index;
     }
 
-    return candidate;
+    return candidatePath;
 }
 
 QString FolderOrganizer::createAssignmentFolder(
@@ -126,14 +142,11 @@ QString FolderOrganizer::createAssignmentFolder(
     const Assignment &assignment) const
 {
     const QString coursePath = createCourseFolder(semester, courseName);
-    QString assignmentName = Utils::assignmentFolderLabel(assignment);
-    assignmentName = sanitizeName(assignmentName);
-
-    const QString finalName = makeUniqueAssignmentName(coursePath, assignmentName, assignment);
-    const QString assignmentPath = QDir(coursePath).filePath(finalName);
-    ensureDir(assignmentPath);
-
-    return assignmentPath;
+    const QString assignmentFolderName = buildAssignmentFolderName(assignment);
+    const QString desiredPath = QDir(coursePath).filePath(assignmentFolderName);
+    const QString finalPath = resolveFolderConflict(desiredPath, assignment.id);
+    ensureDir(finalPath);
+    return finalPath;
 }
 
 bool FolderOrganizer::writeMetadata(const QString &filePath, const QJsonObject &metadata) const
@@ -162,4 +175,16 @@ bool FolderOrganizer::writeMetadata(const QString &filePath, const QJsonObject &
     file.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
     file.close();
     return true;
+}
+
+bool FolderOrganizer::writeMetadataIfChanged(
+    const QString &metadataPath,
+    const QJsonObject &metadata,
+    const QString &newHash,
+    const QString &oldHash) const
+{
+    if (!oldHash.isEmpty() && oldHash == newHash && QFileInfo::exists(metadataPath)) {
+        return false;
+    }
+    return writeMetadata(metadataPath, metadata);
 }

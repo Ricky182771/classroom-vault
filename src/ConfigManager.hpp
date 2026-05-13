@@ -24,6 +24,8 @@ public:
     void setSemesterForCourse(const QString &courseId, const QString &semester);
     QHash<QString, QString> semesterMapping() const;
     void setSemesterMapping(const QHash<QString, QString> &mapping);
+    QString legacySemesterForCourseName(const QString &courseName) const;
+    void clearLegacySemesterForCourseName(const QString &courseName);
 
     QString oauthClientId() const;
     QString oauthClientSecret() const;
@@ -46,5 +48,6 @@ private:
     QString m_configDir;
     QString m_basePath;
     QHash<QString, QString> m_courseSemesters;
+    QHash<QString, QString> m_legacyCourseSemestersByName;
     QJsonObject m_oauth;
 };

@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QString>
 #include <QTime>
+#include <QVector>
 
 struct Course {
     QString id;
@@ -11,6 +12,15 @@ struct Course {
     QString section;
     QString descriptionHeading;
     QString alternateLink;
+};
+
+struct AssignmentMaterial {
+    QString type;
+    QString title;
+    QString alternateLink;
+    QString driveFileId;
+    QString url;
+    QJsonObject rawJson;
 };
 
 struct Assignment {
@@ -23,8 +33,10 @@ struct Assignment {
     QString alternateLink;
     QDate dueDate;
     QTime dueTime;
+    QVector<AssignmentMaterial> materials;
     QJsonObject rawJson;
 };
 
 Q_DECLARE_METATYPE(Course)
 Q_DECLARE_METATYPE(Assignment)
+Q_DECLARE_METATYPE(AssignmentMaterial)

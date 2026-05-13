@@ -24,6 +24,23 @@
         "workType": "ASSIGNMENT",
         "state": "PUBLISHED",
         "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/MQ",
+        "materials": [
+          {
+            "driveFile": {
+              "driveFile": {
+                "id": "drive_file_a1",
+                "title": "Documento de practica",
+                "alternateLink": "https://drive.google.com/file/d/drive_file_a1/view"
+              }
+            }
+          },
+          {
+            "link": {
+              "title": "Guia de referencia",
+              "url": "https://example.com/guia"
+            }
+          }
+        ],
         "dueDate": {
           "year": 2026,
           "month": 5,
@@ -51,6 +68,20 @@
         "workType": "ASSIGNMENT",
         "state": "PUBLISHED",
         "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/Mw",
+        "materials": [
+          {
+            "youtubeVideo": {
+              "title": "Video explicativo",
+              "alternateLink": "https://youtube.com/watch?v=dQw4w9WgXcQ"
+            }
+          },
+          {
+            "form": {
+              "title": "Formulario de autoevaluacion",
+              "formUrl": "https://forms.google.com/example"
+            }
+          }
+        ],
         "dueDate": {
           "year": 2026,
           "month": 5,

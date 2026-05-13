@@ -15,6 +15,7 @@ int main(int argc, char *argv[])
 
     qRegisterMetaType<QList<Course>>("QList<Course>");
     qRegisterMetaType<QList<Assignment>>("QList<Assignment>");
+    qRegisterMetaType<AssignmentMaterial>("AssignmentMaterial");
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Classroom Vault / TareaSync"));
@@ -41,6 +42,7 @@ int main(int argc, char *argv[])
         QTextStream out(stdout);
         QTextStream err(stderr);
         int cliExitCode = 0;
+        bool syncTriggered = false;
 
         const QString basePath = parser.value(basePathOption).trimmed();
         if (basePath.isEmpty()) {
@@ -58,23 +60,28 @@ int main(int argc, char *argv[])
             out.flush();
         });
 
-        QObject::connect(&syncManager, &SyncManager::errorOccurred, [&err, &cliExitCode](const QString &message) {
+        QObject::connect(&syncManager, &SyncManager::errorOccurred, [&err, &cliExitCode, &syncTriggered](const QString &message) {
             err << "ERROR: " << message << "\n";
             err.flush();
             cliExitCode = 1;
-            qApp->quit();
+            if (!syncTriggered) {
+                qApp->quit();
+            }
         });
 
-        QObject::connect(&syncManager, &SyncManager::assignmentsChanged, [&syncManager](const QList<Assignment> &) {
+        QObject::connect(&syncManager, &SyncManager::assignmentsChanged, [&syncManager, &syncTriggered](const QList<Assignment> &) {
+            syncTriggered = true;
             syncManager.syncFolders();
         });
 
         QObject::connect(
             &syncManager,
             &SyncManager::syncFinished,
-            [&out](int changedCount, int unchangedCount) {
-                out << "Sincronizacion finalizada. Actualizados: " << changedCount
-                    << ", sin cambios: " << unchangedCount << "\n";
+            [&out](int newCount, int updatedCount, int unchangedCount, int errorCount) {
+                out << "Sincronizacion finalizada. Nuevas: " << newCount
+                    << ", actualizadas: " << updatedCount
+                    << ", sin cambios: " << unchangedCount
+                    << ", errores: " << errorCount << "\n";
                 out.flush();
                 qApp->quit();
             });

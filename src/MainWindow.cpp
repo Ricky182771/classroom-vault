@@ -4,8 +4,9 @@
 #include "SyncManager.hpp"
 #include "Utils.hpp"
 
-#include <QDate>
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -15,13 +16,19 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QProgressBar>
 #include <QPushButton>
-#include <QCoreApplication>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTextEdit>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+
+namespace {
+constexpr int CourseIdRole = Qt::UserRole + 1;
+constexpr int AssignmentIdRole = Qt::UserRole + 2;
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -32,14 +39,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_basePathEdit->setText(m_syncManager->basePath());
 
-    appendLog(QStringLiteral("Listo. Carga datos de prueba o inicia sesion para Classroom real."));
-    appendLog(QStringLiteral("Config local: %1").arg(m_syncManager->configManager().configDir()));
+    appendLog(QStringLiteral("INFO  Listo. Carga datos de prueba o inicia sesion para Classroom real."));
+    appendLog(QStringLiteral("INFO  Config local: %1").arg(m_syncManager->configManager().configDir()));
 }
 
 void MainWindow::setupUi()
 {
     setWindowTitle(QStringLiteral("Classroom Vault / TareaSync"));
-    resize(1100, 760);
+    resize(1200, 820);
 
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
@@ -48,22 +55,47 @@ void MainWindow::setupUi()
     auto *pathLabel = new QLabel(QStringLiteral("Ruta base:"), central);
     m_basePathEdit = new QLineEdit(central);
     m_browseButton = new QPushButton(QStringLiteral("Seleccionar"), central);
+    m_openBaseFolderButton = new QPushButton(QStringLiteral("Abrir carpeta base"), central);
 
     pathRow->addWidget(pathLabel);
     pathRow->addWidget(m_basePathEdit, 1);
     pathRow->addWidget(m_browseButton);
+    pathRow->addWidget(m_openBaseFolderButton);
 
     auto *buttonRow = new QHBoxLayout();
     m_loginButton = new QPushButton(QStringLiteral("Iniciar sesion"), central);
     m_loadSampleButton = new QPushButton(QStringLiteral("Cargar datos de prueba"), central);
     m_loadClassroomButton = new QPushButton(QStringLiteral("Cargar Classroom"), central);
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar carpetas"), central);
+    m_clearLogsButton = new QPushButton(QStringLiteral("Limpiar logs"), central);
 
     buttonRow->addWidget(m_loginButton);
     buttonRow->addWidget(m_loadSampleButton);
     buttonRow->addWidget(m_loadClassroomButton);
     buttonRow->addWidget(m_syncButton);
+    buttonRow->addWidget(m_clearLogsButton);
     buttonRow->addStretch(1);
+
+    auto *counterRow = new QHBoxLayout();
+    m_coursesCountLabel = new QLabel(QStringLiteral("Cursos: 0"), central);
+    m_assignmentsCountLabel = new QLabel(QStringLiteral("Tareas: 0"), central);
+    m_newCountLabel = new QLabel(QStringLiteral("Nuevas: 0"), central);
+    m_updatedCountLabel = new QLabel(QStringLiteral("Actualizadas: 0"), central);
+    m_unchangedCountLabel = new QLabel(QStringLiteral("Sin cambios: 0"), central);
+    m_errorCountLabel = new QLabel(QStringLiteral("Errores: 0"), central);
+
+    counterRow->addWidget(m_coursesCountLabel);
+    counterRow->addWidget(m_assignmentsCountLabel);
+    counterRow->addWidget(m_newCountLabel);
+    counterRow->addWidget(m_updatedCountLabel);
+    counterRow->addWidget(m_unchangedCountLabel);
+    counterRow->addWidget(m_errorCountLabel);
+    counterRow->addStretch(1);
+
+    m_progressBar = new QProgressBar(central);
+    m_progressBar->setRange(0, 1);
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat(QStringLiteral("Sin progreso"));
 
     auto *coursesLabel = new QLabel(QStringLiteral("Cursos (edita columna Semestre asignado)"), central);
     m_coursesTable = new QTableWidget(central);
@@ -75,7 +107,7 @@ void MainWindow::setupUi()
     m_coursesTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     m_coursesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
 
-    auto *assignmentsLabel = new QLabel(QStringLiteral("Tareas encontradas"), central);
+    auto *assignmentsLabel = new QLabel(QStringLiteral("Tareas encontradas (doble clic para abrir carpeta)"), central);
     m_assignmentsTable = new QTableWidget(central);
     m_assignmentsTable->setColumnCount(4);
     m_assignmentsTable->setHorizontalHeaderLabels(
@@ -92,6 +124,8 @@ void MainWindow::setupUi()
 
     layout->addLayout(pathRow);
     layout->addLayout(buttonRow);
+    layout->addLayout(counterRow);
+    layout->addWidget(m_progressBar);
     layout->addWidget(coursesLabel);
     layout->addWidget(m_coursesTable, 2);
     layout->addWidget(assignmentsLabel);
@@ -105,17 +139,21 @@ void MainWindow::setupUi()
 void MainWindow::connectSignals()
 {
     connect(m_browseButton, &QPushButton::clicked, this, &MainWindow::onBrowseBasePath);
+    connect(m_openBaseFolderButton, &QPushButton::clicked, this, &MainWindow::onOpenBaseFolder);
+    connect(m_clearLogsButton, &QPushButton::clicked, this, &MainWindow::onClearLogs);
     connect(m_loginButton, &QPushButton::clicked, this, &MainWindow::onLogin);
     connect(m_loadSampleButton, &QPushButton::clicked, this, &MainWindow::onLoadSampleData);
     connect(m_loadClassroomButton, &QPushButton::clicked, this, &MainWindow::onLoadClassroom);
     connect(m_syncButton, &QPushButton::clicked, this, &MainWindow::onSyncFolders);
 
     connect(m_coursesTable, &QTableWidget::itemChanged, this, &MainWindow::onCourseTableItemChanged);
+    connect(m_assignmentsTable, &QTableWidget::cellDoubleClicked, this, &MainWindow::onAssignmentDoubleClicked);
 
     connect(m_syncManager, &SyncManager::coursesChanged, this, &MainWindow::onCoursesChanged);
     connect(m_syncManager, &SyncManager::assignmentsChanged, this, &MainWindow::onAssignmentsChanged);
     connect(m_syncManager, &SyncManager::syncProgress, this, &MainWindow::onSyncProgress);
     connect(m_syncManager, &SyncManager::syncFinished, this, &MainWindow::onSyncFinished);
+    connect(m_syncManager, &SyncManager::countersChanged, this, &MainWindow::onCountersChanged);
     connect(m_syncManager, &SyncManager::logMessage, this, &MainWindow::appendLog);
     connect(m_syncManager, &SyncManager::errorOccurred, this, &MainWindow::appendError);
 }
@@ -147,7 +185,28 @@ void MainWindow::onBrowseBasePath()
 
     m_basePathEdit->setText(selected);
     m_syncManager->setBasePath(selected);
-    appendLog(QStringLiteral("Ruta base guardada: %1").arg(selected));
+    appendLog(QStringLiteral("INFO  Ruta base guardada: %1").arg(selected));
+}
+
+void MainWindow::onOpenBaseFolder()
+{
+    const QString basePath = m_basePathEdit->text().trimmed();
+    if (basePath.isEmpty()) {
+        appendError(QStringLiteral("Ruta base vacia."));
+        return;
+    }
+
+    if (!QFileInfo::exists(basePath)) {
+        appendError(QStringLiteral("Ruta base inexistente: %1").arg(basePath));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(basePath));
+}
+
+void MainWindow::onClearLogs()
+{
+    m_logText->clear();
 }
 
 void MainWindow::onLogin()
@@ -175,7 +234,7 @@ void MainWindow::onLogin()
         &ok);
 
     if (!ok || code.trimmed().isEmpty()) {
-        appendLog(QStringLiteral("Autorizacion cancelada por el usuario."));
+        appendLog(QStringLiteral("INFO  Autorizacion cancelada por el usuario."));
         return;
     }
 
@@ -186,9 +245,9 @@ void MainWindow::onLoadSampleData()
 {
     const QString samplePath = resolveSampleDataPath();
     if (samplePath.isEmpty()) {
-        appendLog(QStringLiteral("No se encontro sample_classroom_data.json local; se intentara recurso embebido."));
+        appendLog(QStringLiteral("INFO  No se encontro sample local; se intentara recurso embebido."));
     } else {
-        appendLog(QStringLiteral("Cargando sample desde: %1").arg(samplePath));
+        appendLog(QStringLiteral("INFO  Cargando sample desde: %1").arg(samplePath));
     }
 
     m_syncManager->loadSampleData(samplePath);
@@ -206,6 +265,10 @@ void MainWindow::onSyncFolders()
         appendError(QStringLiteral("Ruta base vacia. Selecciona una carpeta primero."));
         return;
     }
+
+    m_progressBar->setRange(0, 1);
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat(QStringLiteral("Preparando sincronizacion..."));
 
     m_syncManager->setBasePath(basePath);
 
@@ -273,6 +336,9 @@ void MainWindow::onAssignmentsChanged(const QList<Assignment> &assignments)
         auto *dueDateItem = new QTableWidgetItem(dueDateText);
         auto *stateItem = new QTableWidgetItem(assignment.state);
 
+        courseItem->setData(CourseIdRole, assignment.courseId);
+        courseItem->setData(AssignmentIdRole, assignment.id);
+
         courseItem->setFlags(courseItem->flags() & ~Qt::ItemIsEditable);
         titleItem->setFlags(titleItem->flags() & ~Qt::ItemIsEditable);
         dueDateItem->setFlags(dueDateItem->flags() & ~Qt::ItemIsEditable);
@@ -299,18 +365,74 @@ void MainWindow::onCourseTableItemChanged(QTableWidgetItem *item)
     m_syncManager->setSemesterForCourse(idItem->text().trimmed(), item->text().trimmed());
 }
 
+void MainWindow::onAssignmentDoubleClicked(int row, int column)
+{
+    Q_UNUSED(column)
+
+    auto *item = m_assignmentsTable->item(row, 0);
+    if (!item) {
+        return;
+    }
+
+    const QString courseId = item->data(CourseIdRole).toString();
+    const QString assignmentId = item->data(AssignmentIdRole).toString();
+
+    const QString path = m_syncManager->assignmentFolderPath(courseId, assignmentId);
+    if (path.trimmed().isEmpty() || !QFileInfo::exists(path)) {
+        QMessageBox::information(
+            this,
+            QStringLiteral("Carpeta no encontrada"),
+            QStringLiteral("La tarea aun no tiene carpeta sincronizada."));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
 void MainWindow::onSyncProgress(int current, int total)
 {
+    if (total <= 0) {
+        m_progressBar->setRange(0, 1);
+        m_progressBar->setValue(0);
+        m_progressBar->setFormat(QStringLiteral("Sin tareas"));
+        statusBar()->showMessage(QStringLiteral("Sin tareas para sincronizar"));
+        return;
+    }
+
+    m_progressBar->setRange(0, total);
+    m_progressBar->setValue(current);
+    m_progressBar->setFormat(QStringLiteral("%v/%m"));
+
     statusBar()->showMessage(QStringLiteral("Sincronizando %1/%2...").arg(current).arg(total));
 }
 
-void MainWindow::onSyncFinished(int changedCount, int unchangedCount)
+void MainWindow::onSyncFinished(int newCount, int updatedCount, int unchangedCount, int errorCount)
 {
     statusBar()->showMessage(QStringLiteral("Sincronizacion completada."), 6000);
+    m_progressBar->setFormat(QStringLiteral("Completado"));
+
     appendLog(
-        QStringLiteral("Resultado sync -> actualizados: %1, sin cambios: %2")
-            .arg(changedCount)
-            .arg(unchangedCount));
+        QStringLiteral("INFO  Resultado sync -> nuevas: %1, actualizadas: %2, sin cambios: %3, errores: %4")
+            .arg(newCount)
+            .arg(updatedCount)
+            .arg(unchangedCount)
+            .arg(errorCount));
+}
+
+void MainWindow::onCountersChanged(
+    int courses,
+    int assignments,
+    int newCount,
+    int updatedCount,
+    int unchangedCount,
+    int errorCount)
+{
+    m_coursesCountLabel->setText(QStringLiteral("Cursos: %1").arg(courses));
+    m_assignmentsCountLabel->setText(QStringLiteral("Tareas: %1").arg(assignments));
+    m_newCountLabel->setText(QStringLiteral("Nuevas: %1").arg(newCount));
+    m_updatedCountLabel->setText(QStringLiteral("Actualizadas: %1").arg(updatedCount));
+    m_unchangedCountLabel->setText(QStringLiteral("Sin cambios: %1").arg(unchangedCount));
+    m_errorCountLabel->setText(QStringLiteral("Errores: %1").arg(errorCount));
 }
 
 void MainWindow::appendLog(const QString &message)
@@ -322,5 +444,9 @@ void MainWindow::appendLog(const QString &message)
 
 void MainWindow::appendError(const QString &message)
 {
-    appendLog(QStringLiteral("ERROR: %1").arg(message));
+    QString normalized = message.trimmed();
+    if (!normalized.startsWith(QStringLiteral("ERR"))) {
+        normalized = QStringLiteral("ERR   ") + normalized;
+    }
+    appendLog(normalized);
 }

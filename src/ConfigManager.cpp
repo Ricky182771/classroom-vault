@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 
 ConfigManager::ConfigManager()
     : m_configDir(QDir::homePath() + QStringLiteral("/.config/ClassroomVault"))
@@ -15,6 +16,7 @@ void ConfigManager::loadDefaults()
 {
     m_basePath.clear();
     m_courseSemesters.clear();
+    m_legacyCourseSemestersByName.clear();
 
     QJsonArray defaultScopes;
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
@@ -83,9 +85,30 @@ bool ConfigManager::load()
     m_basePath = root.value(QStringLiteral("basePath")).toString();
 
     m_courseSemesters.clear();
+    m_legacyCourseSemestersByName.clear();
     const QJsonObject courseSemesters = root.value(QStringLiteral("courseSemesters")).toObject();
     for (auto it = courseSemesters.begin(); it != courseSemesters.end(); ++it) {
-        m_courseSemesters.insert(it.key(), it.value().toString());
+        const QString key = it.key().trimmed();
+        const QString value = it.value().toString().trimmed();
+        if (key.isEmpty() || value.isEmpty()) {
+            continue;
+        }
+
+        // courseId actual suele ser numerico; claves no numericas se consideran configuracion legacy por nombre.
+        if (QRegularExpression(QStringLiteral("^\\d+$")).match(key).hasMatch()) {
+            m_courseSemesters.insert(key, value);
+        } else {
+            m_legacyCourseSemestersByName.insert(key, value);
+        }
+    }
+
+    const QJsonObject legacyByName = root.value(QStringLiteral("courseSemestersByName")).toObject();
+    for (auto it = legacyByName.begin(); it != legacyByName.end(); ++it) {
+        const QString key = it.key().trimmed();
+        const QString value = it.value().toString().trimmed();
+        if (!key.isEmpty() && !value.isEmpty()) {
+            m_legacyCourseSemestersByName.insert(key, value);
+        }
     }
 
     if (root.contains(QStringLiteral("oauth")) && root.value(QStringLiteral("oauth")).isObject()) {
@@ -105,10 +128,17 @@ bool ConfigManager::save() const
     for (auto it = m_courseSemesters.constBegin(); it != m_courseSemesters.constEnd(); ++it) {
         courseSemesters.insert(it.key(), it.value());
     }
+    QJsonObject legacyCourseSemestersByName;
+    for (auto it = m_legacyCourseSemestersByName.constBegin(); it != m_legacyCourseSemestersByName.constEnd(); ++it) {
+        legacyCourseSemestersByName.insert(it.key(), it.value());
+    }
 
     QJsonObject root;
     root.insert(QStringLiteral("basePath"), m_basePath);
     root.insert(QStringLiteral("courseSemesters"), courseSemesters);
+    if (!legacyCourseSemestersByName.isEmpty()) {
+        root.insert(QStringLiteral("courseSemestersByName"), legacyCourseSemestersByName);
+    }
     root.insert(QStringLiteral("oauth"), m_oauth);
 
     QFile file(configPath());
@@ -155,6 +185,16 @@ QHash<QString, QString> ConfigManager::semesterMapping() const
 void ConfigManager::setSemesterMapping(const QHash<QString, QString> &mapping)
 {
     m_courseSemesters = mapping;
+}
+
+QString ConfigManager::legacySemesterForCourseName(const QString &courseName) const
+{
+    return m_legacyCourseSemestersByName.value(courseName).trimmed();
+}
+
+void ConfigManager::clearLegacySemesterForCourseName(const QString &courseName)
+{
+    m_legacyCourseSemestersByName.remove(courseName);
 }
 
 QString ConfigManager::oauthClientId() const

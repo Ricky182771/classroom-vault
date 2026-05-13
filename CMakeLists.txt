@@ -24,6 +24,10 @@ qt_add_executable(classroom-vault
     src/ConfigManager.cpp
     src/SyncManager.hpp
     src/SyncManager.cpp
+    src/SyncStateManager.hpp
+    src/SyncStateManager.cpp
+    src/DriveClient.hpp
+    src/DriveClient.cpp
     src/Models.hpp
     src/Utils.hpp
     resources/app.qrc

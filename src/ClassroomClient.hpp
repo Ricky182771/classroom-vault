@@ -30,6 +30,8 @@ signals:
     void coursesFetched(const QList<Course> &courses);
     void courseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
     void errorOccurred(const QString &operation, const QString &message);
+    void requestFailed(const QString &context, int httpStatus, const QString &errorMessage);
+    void tokenInvalid();
     void logMessage(const QString &message);
 
 private slots:
@@ -40,9 +42,11 @@ private:
 
     QList<Course> parseCourses(const QJsonArray &array) const;
     QList<Assignment> parseCourseWork(const QString &courseId, const QJsonArray &array) const;
+    QVector<AssignmentMaterial> parseMaterials(const QJsonArray &array) const;
 
     Course parseCourseObject(const QJsonObject &json) const;
     Assignment parseAssignmentObject(const QString &courseId, const QJsonObject &json) const;
+    AssignmentMaterial parseMaterialObject(const QJsonObject &json) const;
 
     void fetchCoursesFromSample();
     void fetchCourseWorkFromSample(const QString &courseId);

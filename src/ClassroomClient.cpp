@@ -9,6 +9,27 @@
 #include <QTimer>
 #include <QUrl>
 
+namespace {
+
+QString extractErrorMessage(const QByteArray &payload)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(payload);
+    if (!doc.isObject()) {
+        return QString::fromUtf8(payload).trimmed();
+    }
+
+    const QJsonObject root = doc.object();
+    const QJsonObject errorObj = root.value(QStringLiteral("error")).toObject();
+    const QString apiMessage = errorObj.value(QStringLiteral("message")).toString().trimmed();
+    if (!apiMessage.isEmpty()) {
+        return apiMessage;
+    }
+
+    return QString::fromUtf8(payload).trimmed();
+}
+
+} // namespace
+
 ClassroomClient::ClassroomClient(QObject *parent)
     : QObject(parent)
 {}
@@ -83,6 +104,7 @@ void ClassroomClient::fetchCoursesFromSample()
     QTimer::singleShot(0, this, [this]() {
         const QJsonDocument doc = loadSampleDocument();
         if (!doc.isObject()) {
+            emit requestFailed(QStringLiteral("courses"), 0, QStringLiteral("No se pudo leer sample_classroom_data.json"));
             emit errorOccurred(QStringLiteral("courses"), QStringLiteral("No se pudo leer sample_classroom_data.json"));
             return;
         }
@@ -97,6 +119,7 @@ void ClassroomClient::fetchCourseWorkFromSample(const QString &courseId)
     QTimer::singleShot(0, this, [this, courseId]() {
         const QJsonDocument doc = loadSampleDocument();
         if (!doc.isObject()) {
+            emit requestFailed(QStringLiteral("courseWork:") + courseId, 0, QStringLiteral("No se pudo leer sample_classroom_data.json"));
             emit errorOccurred(QStringLiteral("courseWork:") + courseId, QStringLiteral("No se pudo leer sample_classroom_data.json"));
             return;
         }
@@ -111,6 +134,7 @@ void ClassroomClient::fetchCourseWorkFromSample(const QString &courseId)
 void ClassroomClient::fetchCoursesFromApi()
 {
     if (m_accessToken.isEmpty()) {
+        emit requestFailed(QStringLiteral("courses"), 0, QStringLiteral("No hay access token para llamar Classroom API."));
         emit errorOccurred(QStringLiteral("courses"), QStringLiteral("No hay access token para llamar Classroom API."));
         return;
     }
@@ -126,6 +150,7 @@ void ClassroomClient::fetchCoursesFromApi()
 void ClassroomClient::fetchCourseWorkFromApi(const QString &courseId)
 {
     if (m_accessToken.isEmpty()) {
+        emit requestFailed(QStringLiteral("courseWork:") + courseId, 0, QStringLiteral("No hay access token para llamar Classroom API."));
         emit errorOccurred(QStringLiteral("courseWork:") + courseId, QStringLiteral("No hay access token para llamar Classroom API."));
         return;
     }
@@ -152,21 +177,37 @@ void ClassroomClient::onReplyFinished()
     const QString requestType = reply->property("requestType").toString();
     const QString courseId = reply->property("courseId").toString();
     const QByteArray payload = reply->readAll();
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QString context =
+        requestType == QStringLiteral("courseWork") ? QStringLiteral("courseWork:") + courseId : QStringLiteral("courses");
 
-    if (reply->error() != QNetworkReply::NoError) {
-        const QString detail = QString::fromUtf8(payload);
-        emit errorOccurred(
-            requestType == QStringLiteral("courseWork") ? QStringLiteral("courseWork:") + courseId : QStringLiteral("courses"),
-            detail.isEmpty() ? reply->errorString() : detail);
+    if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
+        QString message = extractErrorMessage(payload);
+        if (message.isEmpty()) {
+            message = reply->errorString();
+        }
+
+        if (httpStatus == 401) {
+            message = QStringLiteral("Token invalido o expirado (401). ") + message;
+            emit tokenInvalid();
+        } else if (httpStatus == 403) {
+            message = QStringLiteral("Permiso insuficiente (403). ") + message;
+        } else if (httpStatus == 404) {
+            message = QStringLiteral("Recurso no encontrado (404). ") + message;
+        } else if (httpStatus == 0 && reply->error() != QNetworkReply::NoError) {
+            message = QStringLiteral("Error de red. ") + message;
+        }
+
+        emit requestFailed(context, httpStatus, message);
+        emit errorOccurred(context, message);
         reply->deleteLater();
         return;
     }
 
     const QJsonDocument doc = QJsonDocument::fromJson(payload);
     if (!doc.isObject()) {
-        emit errorOccurred(
-            requestType == QStringLiteral("courseWork") ? QStringLiteral("courseWork:") + courseId : QStringLiteral("courses"),
-            QStringLiteral("Respuesta JSON invalida de Classroom API."));
+        emit requestFailed(context, httpStatus, QStringLiteral("Respuesta JSON invalida de Classroom API."));
+        emit errorOccurred(context, QStringLiteral("Respuesta JSON invalida de Classroom API."));
         reply->deleteLater();
         return;
     }
@@ -252,5 +293,59 @@ Assignment ClassroomClient::parseAssignmentObject(const QString &courseId, const
     }
 
     assignment.rawJson = json;
+    assignment.materials = parseMaterials(json.value(QStringLiteral("materials")).toArray());
     return assignment;
+}
+
+QVector<AssignmentMaterial> ClassroomClient::parseMaterials(const QJsonArray &array) const
+{
+    QVector<AssignmentMaterial> materials;
+    materials.reserve(array.size());
+
+    for (const QJsonValue &value : array) {
+        if (!value.isObject()) {
+            continue;
+        }
+        materials.append(parseMaterialObject(value.toObject()));
+    }
+
+    return materials;
+}
+
+AssignmentMaterial ClassroomClient::parseMaterialObject(const QJsonObject &json) const
+{
+    AssignmentMaterial material;
+    material.rawJson = json;
+
+    if (json.contains(QStringLiteral("driveFile")) && json.value(QStringLiteral("driveFile")).isObject()) {
+        material.type = QStringLiteral("driveFile");
+        const QJsonObject driveContainer = json.value(QStringLiteral("driveFile")).toObject();
+        QJsonObject driveFile = driveContainer.value(QStringLiteral("driveFile")).toObject();
+        if (driveFile.isEmpty()) {
+            driveFile = driveContainer;
+        }
+        material.title = driveFile.value(QStringLiteral("title")).toString();
+        material.alternateLink = driveFile.value(QStringLiteral("alternateLink")).toString();
+        material.driveFileId = driveFile.value(QStringLiteral("id")).toString();
+    } else if (json.contains(QStringLiteral("link")) && json.value(QStringLiteral("link")).isObject()) {
+        material.type = QStringLiteral("link");
+        const QJsonObject link = json.value(QStringLiteral("link")).toObject();
+        material.title = link.value(QStringLiteral("title")).toString();
+        material.url = link.value(QStringLiteral("url")).toString();
+    } else if (json.contains(QStringLiteral("youtubeVideo")) && json.value(QStringLiteral("youtubeVideo")).isObject()) {
+        material.type = QStringLiteral("youtubeVideo");
+        const QJsonObject yt = json.value(QStringLiteral("youtubeVideo")).toObject();
+        material.title = yt.value(QStringLiteral("title")).toString();
+        material.alternateLink = yt.value(QStringLiteral("alternateLink")).toString();
+        material.url = yt.value(QStringLiteral("alternateLink")).toString();
+    } else if (json.contains(QStringLiteral("form")) && json.value(QStringLiteral("form")).isObject()) {
+        material.type = QStringLiteral("form");
+        const QJsonObject form = json.value(QStringLiteral("form")).toObject();
+        material.title = form.value(QStringLiteral("title")).toString();
+        material.url = form.value(QStringLiteral("formUrl")).toString();
+    } else {
+        material.type = QStringLiteral("unknown");
+    }
+
+    return material;
 }
