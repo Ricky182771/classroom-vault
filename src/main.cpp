@@ -1,6 +1,7 @@
-#include "MainWindow.hpp"
 #include "Models.hpp"
 #include "SyncManager.hpp"
+#include "ui/MainWindow.hpp"
+#include "ui/StyleManager.hpp"
 
 #include <QApplication>
 #include <QCommandLineOption>
@@ -10,6 +11,9 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    if (!qEnvironmentVariableIsSet("CLASSROOM_VAULT_DISABLE_THEME")) {
+        StyleManager::applyDarkTheme(app);
+    }
     app.setOrganizationName(QStringLiteral("ClassroomVault"));
     app.setApplicationName(QStringLiteral("ClassroomVault"));
 

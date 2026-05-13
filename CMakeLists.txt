@@ -12,8 +12,6 @@ qt_standard_project_setup()
 
 qt_add_executable(classroom-vault
     src/main.cpp
-    src/MainWindow.hpp
-    src/MainWindow.cpp
     src/GoogleAuth.hpp
     src/GoogleAuth.cpp
     src/ClassroomClient.hpp
@@ -32,6 +30,41 @@ qt_add_executable(classroom-vault
     src/AttachmentDownloader.cpp
     src/Models.hpp
     src/Utils.hpp
+    src/ui/MainWindow.hpp
+    src/ui/MainWindow.cpp
+    src/ui/StyleManager.hpp
+    src/ui/StyleManager.cpp
+    src/ui/UiModels.hpp
+    src/ui/SidebarWidget.hpp
+    src/ui/SidebarWidget.cpp
+    src/ui/TopBarWidget.hpp
+    src/ui/TopBarWidget.cpp
+    src/ui/PathBarWidget.hpp
+    src/ui/PathBarWidget.cpp
+    src/ui/DashboardWidget.hpp
+    src/ui/DashboardWidget.cpp
+    src/ui/HeroStripWidget.hpp
+    src/ui/HeroStripWidget.cpp
+    src/ui/KpiCardWidget.hpp
+    src/ui/KpiCardWidget.cpp
+    src/ui/CourseGridWidget.hpp
+    src/ui/CourseGridWidget.cpp
+    src/ui/CourseCardWidget.hpp
+    src/ui/CourseCardWidget.cpp
+    src/ui/ActivityPanelWidget.hpp
+    src/ui/ActivityPanelWidget.cpp
+    src/ui/StorageCardWidget.hpp
+    src/ui/StorageCardWidget.cpp
+    src/ui/StatusBarWidget.hpp
+    src/ui/StatusBarWidget.cpp
+    src/ui/TasksViewWidget.hpp
+    src/ui/TasksViewWidget.cpp
+    src/ui/AttachmentsViewWidget.hpp
+    src/ui/AttachmentsViewWidget.cpp
+    src/ui/HistoryViewWidget.hpp
+    src/ui/HistoryViewWidget.cpp
+    src/ui/SettingsViewWidget.hpp
+    src/ui/SettingsViewWidget.cpp
     resources/app.qrc
 )
 

@@ -9,10 +9,30 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - Creacion y actualizacion de carpetas/`metadata.json`.
 - Estado persistente en `sync_state.json` para evitar duplicados.
 - Deteccion de `materials` en tareas.
+- Nueva interfaz Qt Widgets modular en modo oscuro (inspirada en Classroom, enfocada a respaldo historico):
+  - Sidebar + TopBar + PathBar + Home Dashboard + vistas secundarias.
+  - Home con KPIs, cards de curso, actividad reciente y estado de almacenamiento.
+  - Vistas base para Tareas, Adjuntos, Historial y Configuracion.
 - Descarga de adjuntos (fase actual):
   - `driveFile`: metadata + descarga binaria
   - Google Docs/Sheets/Slides/Drawings: exportacion
   - Links/YouTube/Forms: guardado como `.url`
+
+## Navegacion UI
+
+- `Inicio`: resumen de respaldo, cards de cursos, actividad reciente.
+- `Cursos`: tabla de materias y asignacion de semestre por `courseId`.
+- `Tareas`: tabla de tareas sincronizadas y apertura por doble clic.
+- `Adjuntos`: tabla de archivos/enlaces guardados localmente.
+- `Historial`: logs con filtros y acciones (limpiar/copiar/guardar).
+- `Configuracion`: ruta base, preferencias de sync y estado de cuenta.
+
+## Estados visuales de curso
+
+- `Completo`: todas las tareas detectadas con respaldo local.
+- `Pendiente`: faltan tareas por respaldar.
+- `Error`: inconsistencias o errores detectados durante procesos previos.
+- `Sin sync`: curso sin sincronizacion util aun.
 
 ## Dependencias (Fedora)
 
