@@ -1,5 +1,0 @@
-/home/richi/Documentos/Mis Proyectos/ClassSync/classroom-vault/build/CMakeFiles/classroom-vault.dir
-/home/richi/Documentos/Mis Proyectos/ClassSync/classroom-vault/build/CMakeFiles/edit_cache.dir
-/home/richi/Documentos/Mis Proyectos/ClassSync/classroom-vault/build/CMakeFiles/rebuild_cache.dir
-/home/richi/Documentos/Mis Proyectos/ClassSync/classroom-vault/build/CMakeFiles/classroom-vault_autogen_timestamp_deps.dir
-/home/richi/Documentos/Mis Proyectos/ClassSync/classroom-vault/build/CMakeFiles/classroom-vault_autogen.dir
