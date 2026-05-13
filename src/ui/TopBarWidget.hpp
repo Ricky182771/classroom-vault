@@ -13,23 +13,22 @@ class TopBarWidget : public QFrame {
 public:
     explicit TopBarWidget(QWidget *parent = nullptr);
 
-    void setBreadcrumb(const QString &left, const QString &right);
+    void setPageTitle(const QString &title);
     void setConnectionState(const QString &state);
     void setConnectedEmail(const QString &email);
+    void setSearchPlaceholder(const QString &placeholder);
 
 signals:
     void syncRequested();
-    void settingsRequested();
+    void accountRequested();
     void searchRequested(const QString &text);
-    void toggleSidebarRequested();
+    void searchTextChanged(const QString &text);
 
 private:
-    QLabel *m_breadcrumbLeft = nullptr;
-    QLabel *m_breadcrumbRight = nullptr;
+    QLabel *m_titleLabel = nullptr;
     QLineEdit *m_searchEdit = nullptr;
     QLabel *m_connectionLabel = nullptr;
     QLabel *m_emailLabel = nullptr;
-    QPushButton *m_toggleSidebarButton = nullptr;
     QPushButton *m_syncButton = nullptr;
-    QPushButton *m_settingsButton = nullptr;
+    QPushButton *m_accountButton = nullptr;
 };

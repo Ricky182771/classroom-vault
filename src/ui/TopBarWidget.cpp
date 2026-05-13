@@ -14,22 +14,13 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     layout->setContentsMargins(12, 8, 12, 8);
     layout->setSpacing(8);
 
-    m_toggleSidebarButton = new QPushButton(QStringLiteral("≡"), this);
-    m_toggleSidebarButton->setProperty("variant", QStringLiteral("ghost"));
-    m_toggleSidebarButton->setFixedWidth(34);
-    m_toggleSidebarButton->setToolTip(QStringLiteral("Alternar barra lateral"));
-    layout->addWidget(m_toggleSidebarButton);
+    auto *appLabel = new QLabel(QStringLiteral("Classroom Vault"), this);
+    appLabel->setStyleSheet(QStringLiteral("font-size:15px;font-weight:700;"));
+    layout->addWidget(appLabel);
 
-    m_breadcrumbLeft = new QLabel(QStringLiteral("Inicio"), this);
-    m_breadcrumbLeft->setProperty("subtle", true);
-    m_breadcrumbRight = new QLabel(QStringLiteral("Resumen de respaldo"), this);
-    m_breadcrumbRight->setStyleSheet(QStringLiteral("font-weight: 600;"));
-
-    layout->addWidget(m_breadcrumbLeft);
-    auto *arrow = new QLabel(QStringLiteral("›"), this);
-    arrow->setProperty("subtle", true);
-    layout->addWidget(arrow);
-    layout->addWidget(m_breadcrumbRight);
+    m_titleLabel = new QLabel(QStringLiteral("Inicio"), this);
+    m_titleLabel->setProperty("subtle", true);
+    layout->addWidget(m_titleLabel);
 
     layout->addSpacing(12);
 
@@ -61,11 +52,9 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     m_syncButton->setProperty("variant", QStringLiteral("primary"));
     layout->addWidget(m_syncButton);
 
-    m_settingsButton = new QPushButton(QStringLiteral("⚙"), this);
-    m_settingsButton->setProperty("variant", QStringLiteral("ghost"));
-    m_settingsButton->setFixedWidth(36);
-    m_settingsButton->setToolTip(QStringLiteral("Configuracion"));
-    layout->addWidget(m_settingsButton);
+    m_accountButton = new QPushButton(QStringLiteral("Cuenta"), this);
+    m_accountButton->setProperty("variant", QStringLiteral("ghost"));
+    layout->addWidget(m_accountButton);
 
     auto *avatar = new QLabel(QStringLiteral("R"), this);
     avatar->setAlignment(Qt::AlignCenter);
@@ -74,18 +63,19 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     avatar->setStyleSheet(QStringLiteral("border-radius:15px;font-weight:700;"));
     layout->addWidget(avatar);
 
-    connect(m_toggleSidebarButton, &QPushButton::clicked, this, &TopBarWidget::toggleSidebarRequested);
     connect(m_syncButton, &QPushButton::clicked, this, &TopBarWidget::syncRequested);
-    connect(m_settingsButton, &QPushButton::clicked, this, &TopBarWidget::settingsRequested);
+    connect(m_accountButton, &QPushButton::clicked, this, &TopBarWidget::accountRequested);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, [this]() {
         emit searchRequested(m_searchEdit->text().trimmed());
     });
+    connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        emit searchTextChanged(text.trimmed());
+    });
 }
 
-void TopBarWidget::setBreadcrumb(const QString &left, const QString &right)
+void TopBarWidget::setPageTitle(const QString &title)
 {
-    m_breadcrumbLeft->setText(left);
-    m_breadcrumbRight->setText(right);
+    m_titleLabel->setText(title.trimmed().isEmpty() ? QStringLiteral("Inicio") : title.trimmed());
 }
 
 void TopBarWidget::setConnectionState(const QString &state)
@@ -96,4 +86,10 @@ void TopBarWidget::setConnectionState(const QString &state)
 void TopBarWidget::setConnectedEmail(const QString &email)
 {
     m_emailLabel->setText(email.trimmed().isEmpty() ? QStringLiteral("—") : email.trimmed());
+}
+
+void TopBarWidget::setSearchPlaceholder(const QString &placeholder)
+{
+    m_searchEdit->setPlaceholderText(
+        placeholder.trimmed().isEmpty() ? QStringLiteral("Buscar materias, tareas o archivos…") : placeholder.trimmed());
 }

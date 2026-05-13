@@ -10,6 +10,7 @@
 #include "SyncStateManager.hpp"
 
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
 
 class SyncManager : public QObject {
@@ -33,6 +34,10 @@ public:
     void setSemesterMapping(const QHash<QString, QString> &mapping);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
+    QString courseFolderPath(const QString &courseId) const;
+    QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject assignmentState(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const;
 
     void loadSampleData(const QString &samplePath = QString());
     void fetchFromClassroom();

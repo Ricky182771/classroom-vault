@@ -25,6 +25,7 @@ public:
     void setBasePath(const QString &basePath);
     void setStorageSummary(const QString &usedText, int attachments);
     void setLastSyncText(const QString &text);
+    void setSearchText(const QString &text);
 
 signals:
     void syncRequested();

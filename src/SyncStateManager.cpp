@@ -160,14 +160,33 @@ bool SyncStateManager::hasAssignment(const QString &courseId, const QString &ass
     return assignments.contains(assignmentId);
 }
 
+QString SyncStateManager::courseFolderPath(const QString &courseId) const
+{
+    return courseObject(courseId).value(QStringLiteral("folderPath")).toString();
+}
+
 QString SyncStateManager::assignmentFolderPath(const QString &courseId, const QString &assignmentId) const
 {
     return assignmentObject(courseId, assignmentId).value(QStringLiteral("folderPath")).toString();
 }
 
+QString SyncStateManager::assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const
+{
+    const QString folderPath = assignmentFolderPath(courseId, assignmentId).trimmed();
+    if (folderPath.isEmpty()) {
+        return QString();
+    }
+    return QDir(folderPath).filePath(QStringLiteral("metadata.json"));
+}
+
 QString SyncStateManager::assignmentMetadataHash(const QString &courseId, const QString &assignmentId) const
 {
     return assignmentObject(courseId, assignmentId).value(QStringLiteral("metadataHash")).toString();
+}
+
+QJsonObject SyncStateManager::assignmentState(const QString &courseId, const QString &assignmentId) const
+{
+    return assignmentObject(courseId, assignmentId);
 }
 
 bool SyncStateManager::isAssignmentMetadataChanged(
@@ -244,6 +263,11 @@ void SyncStateManager::updateAssignment(
 QJsonObject SyncStateManager::assignmentAttachments(const QString &courseId, const QString &assignmentId) const
 {
     return assignmentObject(courseId, assignmentId).value(QStringLiteral("attachments")).toObject();
+}
+
+QJsonObject SyncStateManager::assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const
+{
+    return assignmentAttachments(courseId, assignmentId);
 }
 
 QJsonObject SyncStateManager::attachmentRecord(

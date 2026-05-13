@@ -25,6 +25,7 @@ signals:
     void openClassroomRequested(const QString &courseId);
 
 private:
+    void mousePressEvent(QMouseEvent *event) override;
     void applyStatusUi(const QString &status);
 
     CourseUiState m_course;

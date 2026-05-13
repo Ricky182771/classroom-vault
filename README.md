@@ -10,9 +10,9 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - Estado persistente en `sync_state.json` para evitar duplicados.
 - Deteccion de `materials` en tareas.
 - Nueva interfaz Qt Widgets modular en modo oscuro (inspirada en Classroom, enfocada a respaldo historico):
-  - Sidebar + TopBar + PathBar + Home Dashboard + vistas secundarias.
-  - Home con KPIs, cards de curso, actividad reciente y estado de almacenamiento.
-  - Vistas base para Tareas, Adjuntos, Historial y Configuracion.
+  - Flujo jerarquico principal: **Inicio -> Materia -> Tarea**.
+  - Navegacion contextual con `TopBar`, `PathBar`, `Breadcrumb`, cards de cursos y cards/lista de tareas.
+  - Preview de tarea desde `metadata.json` con vista de adjuntos.
 - Descarga de adjuntos (fase actual):
   - `driveFile`: metadata + descarga binaria
   - Google Docs/Sheets/Slides/Drawings: exportacion
@@ -20,12 +20,11 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 
 ## Navegacion UI
 
-- `Inicio`: resumen de respaldo, cards de cursos, actividad reciente.
-- `Cursos`: tabla de materias y asignacion de semestre por `courseId`.
-- `Tareas`: tabla de tareas sincronizadas y apertura por doble clic.
-- `Adjuntos`: tabla de archivos/enlaces guardados localmente.
-- `Historial`: logs con filtros y acciones (limpiar/copiar/guardar).
-- `Configuracion`: ruta base, preferencias de sync y estado de cuenta.
+- `Inicio`: resumen de respaldo, KPIs, filtros y grid de materias.
+- `Materia`: lista de tareas del curso seleccionado, estado de metadata/adjuntos y acciones.
+- `Tarea`: previsualizacion local (titulo, descripcion, fecha, estado, evidencia, adjuntos).
+- `Actividad`: panel desplegable para logs recientes.
+- `Ruta`: controles globales (cambiar ruta, abrir respaldo, sincronizar, descargar adjuntos).
 
 ## Estados visuales de curso
 
@@ -33,6 +32,15 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - `Pendiente`: faltan tareas por respaldar.
 - `Error`: inconsistencias o errores detectados durante procesos previos.
 - `Sin sync`: curso sin sincronizacion util aun.
+
+## Preview con metadata
+
+- La vista de detalle de tarea usa `metadata.json` como fuente principal.
+- Si no existe `metadata.json`, la app construye un preview de respaldo usando `sync_state.json` y datos cargados.
+- Los adjuntos se muestran como tarjetas con acciones:
+  - abrir archivo local
+  - abrir carpeta
+  - abrir enlace original
 
 ## Dependencias (Fedora)
 

@@ -19,8 +19,11 @@ public:
     bool hasCourse(const QString &courseId) const;
     bool hasAssignment(const QString &courseId, const QString &assignmentId) const;
 
+    QString courseFolderPath(const QString &courseId) const;
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
+    QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
     QString assignmentMetadataHash(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject assignmentState(const QString &courseId, const QString &assignmentId) const;
 
     bool isAssignmentMetadataChanged(
         const QString &courseId,
@@ -35,6 +38,7 @@ public:
         const QString &folderPath,
         const QJsonObject &metadata);
     QJsonObject assignmentAttachments(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const;
     QJsonObject attachmentRecord(const QString &courseId, const QString &assignmentId, const QString &attachmentKey) const;
     void updateAttachment(
         const QString &courseId,

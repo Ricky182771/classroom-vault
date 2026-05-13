@@ -3,58 +3,39 @@
 #include "../GoogleAuth.hpp"
 #include "../SyncManager.hpp"
 #include "../Utils.hpp"
-#include "AttachmentsViewWidget.hpp"
-#include "DashboardWidget.hpp"
-#include "HistoryViewWidget.hpp"
+#include "ActivityDrawerWidget.hpp"
+#include "AssignmentDetailWidget.hpp"
+#include "BreadcrumbWidget.hpp"
+#include "CourseDetailWidget.hpp"
+#include "HomeDashboardWidget.hpp"
+#include "MetadataReader.hpp"
 #include "PathBarWidget.hpp"
-#include "SettingsViewWidget.hpp"
-#include "SidebarWidget.hpp"
 #include "StatusBarWidget.hpp"
-#include "TasksViewWidget.hpp"
 #include "TopBarWidget.hpp"
-#include "UiModels.hpp"
 
-#include <QCheckBox>
+#include <QAction>
 #include <QCoreApplication>
+#include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFrame>
-#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMessageBox>
-#include <QProgressBar>
-#include <QPushButton>
 #include <QStackedWidget>
-#include <QTableWidget>
-#include <QTableWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <algorithm>
 
 namespace {
-
-QString statusForCourse(const CourseUiState &course)
-{
-    if (course.errors > 0) {
-        return QStringLiteral("error");
-    }
-    if (course.totalTasks <= 0) {
-        return QStringLiteral("idle");
-    }
-    if (course.pending > 0) {
-        return QStringLiteral("pending");
-    }
-    return QStringLiteral("complete");
-}
 
 QJsonObject parseJsonFileObject(const QString &path)
 {
@@ -72,15 +53,18 @@ QJsonObject parseJsonFileObject(const QString &path)
     return doc.object();
 }
 
-int attachmentObjectCount(const QJsonObject &attachmentsObject)
+QString courseStatusFromCounts(int totalTasks, int pending, int errors)
 {
-    int count = 0;
-    for (auto it = attachmentsObject.begin(); it != attachmentsObject.end(); ++it) {
-        if (it.value().isObject()) {
-            ++count;
-        }
+    if (errors > 0) {
+        return QStringLiteral("error");
     }
-    return count;
+    if (totalTasks <= 0) {
+        return QStringLiteral("idle");
+    }
+    if (pending > 0) {
+        return QStringLiteral("pending");
+    }
+    return QStringLiteral("complete");
 }
 
 } // namespace
@@ -94,10 +78,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_syncManager->setAutoDownloadAttachments(false);
 
-    appendLog(QStringLiteral("INFO  Interfaz lista. Carga Classroom o datos de prueba para comenzar."));
+    appendLog(QStringLiteral("INFO  Interfaz lista. Flujo activo: Inicio -> Materia -> Tarea."));
     appendLog(QStringLiteral("INFO  Config local: %1").arg(m_syncManager->configManager().configDir()));
 
     refreshAllViews();
+    showHome();
 }
 
 void MainWindow::setupUi()
@@ -106,151 +91,87 @@ void MainWindow::setupUi()
     resize(1440, 920);
 
     auto *central = new QWidget(this);
-    auto *root = new QHBoxLayout(central);
-    root->setContentsMargins(0, 0, 0, 0);
-    root->setSpacing(0);
+    auto *layout = new QVBoxLayout(central);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    m_sidebar = new SidebarWidget(central);
-    root->addWidget(m_sidebar);
+    m_topBar = new TopBarWidget(central);
+    layout->addWidget(m_topBar);
 
-    auto *rightPane = new QWidget(central);
-    auto *rightLayout = new QVBoxLayout(rightPane);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(0);
+    m_pathBar = new PathBarWidget(central);
+    layout->addWidget(m_pathBar);
 
-    m_topBar = new TopBarWidget(rightPane);
-    rightLayout->addWidget(m_topBar);
+    m_breadcrumb = new BreadcrumbWidget(central);
+    layout->addWidget(m_breadcrumb);
 
-    m_pathBar = new PathBarWidget(rightPane);
-    rightLayout->addWidget(m_pathBar);
+    m_stack = new QStackedWidget(central);
+    m_home = new HomeDashboardWidget(m_stack);
+    m_courseDetail = new CourseDetailWidget(m_stack);
+    m_assignmentDetail = new AssignmentDetailWidget(m_stack);
 
-    m_stack = new QStackedWidget(rightPane);
-    rightLayout->addWidget(m_stack, 1);
+    m_stack->addWidget(m_home);
+    m_stack->addWidget(m_courseDetail);
+    m_stack->addWidget(m_assignmentDetail);
+    layout->addWidget(m_stack, 1);
 
-    m_statusBarWidget = new StatusBarWidget(rightPane);
-    rightLayout->addWidget(m_statusBarWidget);
+    m_activityDrawer = new ActivityDrawerWidget(central);
+    layout->addWidget(m_activityDrawer);
 
-    m_dashboard = new DashboardWidget(m_stack);
-    m_pageIndexById.insert(QStringLiteral("home"), m_stack->addWidget(m_dashboard));
-
-    m_coursesPage = new QFrame(m_stack);
-    m_coursesPage->setObjectName(QStringLiteral("Section"));
-    auto *coursesLayout = new QVBoxLayout(m_coursesPage);
-    coursesLayout->setContentsMargins(12, 12, 12, 12);
-    coursesLayout->setSpacing(10);
-
-    auto *coursesTitle = new QLabel(QStringLiteral("Cursos"), m_coursesPage);
-    coursesTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
-    coursesLayout->addWidget(coursesTitle);
-
-    auto *coursesActions = new QHBoxLayout();
-    coursesActions->setSpacing(8);
-
-    m_loginButton = new QPushButton(QStringLiteral("Iniciar sesion"), m_coursesPage);
-    m_loginButton->setProperty("variant", QStringLiteral("primary"));
-    m_logoutButton = new QPushButton(QStringLiteral("Cerrar sesion"), m_coursesPage);
-    m_loadClassroomButton = new QPushButton(QStringLiteral("Cargar Classroom"), m_coursesPage);
-    m_loadSampleButton = new QPushButton(QStringLiteral("Cargar datos de prueba"), m_coursesPage);
-
-    coursesActions->addWidget(m_loginButton);
-    coursesActions->addWidget(m_logoutButton);
-    coursesActions->addWidget(m_loadClassroomButton);
-    coursesActions->addWidget(m_loadSampleButton);
-    coursesActions->addStretch(1);
-    coursesLayout->addLayout(coursesActions);
-
-    auto *coursesHint = new QLabel(QStringLiteral("Edita la columna Semestre asignado para guardar por courseId."), m_coursesPage);
-    coursesHint->setProperty("subtle", true);
-    coursesLayout->addWidget(coursesHint);
-
-    m_coursesTable = new QTableWidget(m_coursesPage);
-    m_coursesTable->setColumnCount(3);
-    m_coursesTable->setHorizontalHeaderLabels({
-        QStringLiteral("Materia"),
-        QStringLiteral("ID"),
-        QStringLiteral("Semestre asignado"),
-    });
-    m_coursesTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_coursesTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_coursesTable->setAlternatingRowColors(true);
-    auto *coursesHeader = m_coursesTable->horizontalHeader();
-    coursesHeader->setSectionResizeMode(0, QHeaderView::Stretch);
-    coursesHeader->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    coursesHeader->setSectionResizeMode(2, QHeaderView::Stretch);
-    coursesLayout->addWidget(m_coursesTable, 1);
-
-    m_pageIndexById.insert(QStringLiteral("courses"), m_stack->addWidget(m_coursesPage));
-
-    m_tasksView = new TasksViewWidget(m_stack);
-    m_pageIndexById.insert(QStringLiteral("tasks"), m_stack->addWidget(m_tasksView));
-
-    m_attachmentsView = new AttachmentsViewWidget(m_stack);
-    m_pageIndexById.insert(QStringLiteral("attachments"), m_stack->addWidget(m_attachmentsView));
-
-    m_historyView = new HistoryViewWidget(m_stack);
-    m_pageIndexById.insert(QStringLiteral("history"), m_stack->addWidget(m_historyView));
-
-    m_settingsView = new SettingsViewWidget(m_stack);
-    m_pageIndexById.insert(QStringLiteral("settings"), m_stack->addWidget(m_settingsView));
-
-    root->addWidget(rightPane, 1);
+    m_statusBarWidget = new StatusBarWidget(central);
+    layout->addWidget(m_statusBarWidget);
 
     setCentralWidget(central);
-    setCurrentPage(QStringLiteral("home"));
 }
 
 void MainWindow::connectSignals()
 {
-    connect(m_sidebar, &SidebarWidget::navigationRequested, this, &MainWindow::onNavigationRequested);
-
-    connect(m_topBar, &TopBarWidget::toggleSidebarRequested, this, &MainWindow::onToggleSidebar);
     connect(m_topBar, &TopBarWidget::syncRequested, this, &MainWindow::onSyncFolders);
-    connect(m_topBar, &TopBarWidget::settingsRequested, this, [this]() {
-        setCurrentPage(QStringLiteral("settings"));
-    });
-    connect(m_topBar, &TopBarWidget::searchRequested, this, [this](const QString &query) {
-        if (query.trimmed().isEmpty()) {
-            appendLog(QStringLiteral("INFO  Busqueda vacia."));
-            return;
-        }
-        appendLog(QStringLiteral("INFO  Busqueda visual solicitada: %1").arg(query.trimmed()));
-    });
+    connect(m_topBar, &TopBarWidget::searchRequested, this, &MainWindow::onTopBarSearchChanged);
+    connect(m_topBar, &TopBarWidget::searchTextChanged, this, &MainWindow::onTopBarSearchChanged);
+    connect(m_topBar, &TopBarWidget::accountRequested, this, &MainWindow::onTopBarAccountRequested);
 
     connect(m_pathBar, &PathBarWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
     connect(m_pathBar, &PathBarWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
     connect(m_pathBar, &PathBarWidget::syncAllRequested, this, &MainWindow::onSyncFolders);
     connect(m_pathBar, &PathBarWidget::downloadAttachmentsRequested, this, &MainWindow::onDownloadAttachments);
 
-    connect(m_dashboard, &DashboardWidget::syncRequested, this, &MainWindow::onSyncFolders);
-    connect(m_dashboard, &DashboardWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
-    connect(m_dashboard, &DashboardWidget::openCourseRequested, this, &MainWindow::onDashboardOpenCourse);
-    connect(m_dashboard, &DashboardWidget::openFolderRequested, this, &MainWindow::onDashboardOpenFolder);
-    connect(m_dashboard, &DashboardWidget::syncCourseRequested, this, &MainWindow::onDashboardSyncCourse);
-    connect(m_dashboard, &DashboardWidget::downloadAttachmentsRequested, this, &MainWindow::onDashboardDownloadAttachments);
-    connect(m_dashboard, &DashboardWidget::openClassroomRequested, this, &MainWindow::onDashboardOpenClassroom);
-    connect(m_dashboard, &DashboardWidget::showHistoryRequested, this, [this]() {
-        setCurrentPage(QStringLiteral("history"));
+    connect(m_home, &HomeDashboardWidget::syncRequested, this, &MainWindow::onSyncFolders);
+    connect(m_home, &HomeDashboardWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
+    connect(m_home, &HomeDashboardWidget::openCourseRequested, this, &MainWindow::onHomeCourseSelected);
+    connect(m_home, &HomeDashboardWidget::openFolderRequested, this, &MainWindow::onOpenCourseFolder);
+    connect(m_home, &HomeDashboardWidget::syncCourseRequested, this, &MainWindow::onSyncCourseRequested);
+    connect(m_home, &HomeDashboardWidget::downloadAttachmentsRequested, this, [this](const QString &courseId) {
+        appendLog(QStringLiteral("INFO  Descarga por curso (%1) se resuelve con descarga global.").arg(courseId));
+        onDownloadAttachments();
+    });
+    connect(m_home, &HomeDashboardWidget::openClassroomRequested, this, &MainWindow::onOpenCourseClassroom);
+    connect(m_home, &HomeDashboardWidget::showHistoryRequested, this, [this]() {
+        appendLog(QStringLiteral("INFO  Abre Actividad para ver el historial reciente."));
     });
 
-    connect(m_loginButton, &QPushButton::clicked, this, &MainWindow::onLogin);
-    connect(m_logoutButton, &QPushButton::clicked, this, &MainWindow::onLogout);
-    connect(m_loadSampleButton, &QPushButton::clicked, this, &MainWindow::onLoadSampleData);
-    connect(m_loadClassroomButton, &QPushButton::clicked, this, &MainWindow::onLoadClassroom);
-
-    connect(m_coursesTable, &QTableWidget::itemChanged, this, &MainWindow::onCourseTableItemChanged);
-    connect(m_tasksView, &TasksViewWidget::taskActivated, this, &MainWindow::onTaskActivated);
-
-    connect(m_historyView, &HistoryViewWidget::clearLogsRequested, this, &MainWindow::onClearLogs);
-
-    connect(m_settingsView, &SettingsViewWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
-    connect(m_settingsView, &SettingsViewWidget::loginRequested, this, &MainWindow::onLogin);
-    connect(m_settingsView, &SettingsViewWidget::logoutRequested, this, &MainWindow::onLogout);
-    connect(m_settingsView, &SettingsViewWidget::loadClassroomRequested, this, &MainWindow::onLoadClassroom);
-    connect(m_settingsView, &SettingsViewWidget::loadSampleRequested, this, &MainWindow::onLoadSampleData);
-    connect(m_settingsView, &SettingsViewWidget::autoDownloadAttachmentsChanged, this, [this](bool enabled) {
-        m_syncManager->setAutoDownloadAttachments(enabled);
-        appendLog(QStringLiteral("INFO  Descargar adjuntos al sincronizar: %1").arg(enabled ? QStringLiteral("ON") : QStringLiteral("OFF")));
+    connect(m_courseDetail, &CourseDetailWidget::backRequested, this, &MainWindow::onCourseBackRequested);
+    connect(m_courseDetail, &CourseDetailWidget::assignmentSelected, this, &MainWindow::onAssignmentSelected);
+    connect(m_courseDetail, &CourseDetailWidget::openAssignmentFolderRequested, this, &MainWindow::onOpenAssignmentFolder);
+    connect(m_courseDetail, &CourseDetailWidget::openAssignmentClassroomRequested, this, &MainWindow::onOpenAssignmentClassroom);
+    connect(m_courseDetail, &CourseDetailWidget::downloadAssignmentAttachmentsRequested, this, &MainWindow::onDownloadAssignmentAttachments);
+    connect(m_courseDetail, &CourseDetailWidget::syncCourseRequested, this, &MainWindow::onSyncCourseRequested);
+    connect(m_courseDetail, &CourseDetailWidget::downloadCourseAttachmentsRequested, this, [this](const QString &courseId) {
+        appendLog(QStringLiteral("INFO  Descarga por curso (%1) se resuelve con descarga global.").arg(courseId));
+        onDownloadAttachments();
     });
+    connect(m_courseDetail, &CourseDetailWidget::openCourseFolderRequested, this, &MainWindow::onOpenCourseFolder);
+    connect(m_courseDetail, &CourseDetailWidget::openCourseClassroomRequested, this, &MainWindow::onOpenCourseClassroom);
+
+    connect(m_assignmentDetail, &AssignmentDetailWidget::backRequested, this, &MainWindow::onAssignmentBackRequested);
+    connect(m_assignmentDetail, &AssignmentDetailWidget::openClassroomRequested, this, &MainWindow::onOpenAssignmentClassroom);
+    connect(m_assignmentDetail, &AssignmentDetailWidget::openFolderRequested, this, &MainWindow::onOpenAssignmentFolder);
+    connect(m_assignmentDetail, &AssignmentDetailWidget::resyncMetadataRequested, this, &MainWindow::onResyncAssignmentMetadata);
+    connect(m_assignmentDetail, &AssignmentDetailWidget::downloadAttachmentsRequested, this, &MainWindow::onDownloadAssignmentAttachments);
+
+    connect(m_breadcrumb, &BreadcrumbWidget::homeRequested, this, &MainWindow::onBreadcrumbHomeRequested);
+    connect(m_breadcrumb, &BreadcrumbWidget::courseRequested, this, &MainWindow::onBreadcrumbCourseRequested);
+
+    connect(m_activityDrawer, &ActivityDrawerWidget::clearRequested, this, &MainWindow::onClearLogs);
 
     connect(m_syncManager, &SyncManager::coursesChanged, this, &MainWindow::onCoursesChanged);
     connect(m_syncManager, &SyncManager::assignmentsChanged, this, &MainWindow::onAssignmentsChanged);
@@ -264,16 +185,10 @@ void MainWindow::connectSignals()
     connect(m_syncManager, &SyncManager::errorOccurred, this, &MainWindow::appendError);
 
     GoogleAuth *auth = m_syncManager->googleAuth();
-    connect(auth, &GoogleAuth::authenticationStarted, this, [this]() {
-        m_loginButton->setEnabled(false);
-        m_runtimeStatus = QStringLiteral("Autenticando...");
-        refreshStatusUi();
-    });
     connect(auth, &GoogleAuth::browserOpened, this, [this](const QUrl &) {
         appendLog(QStringLiteral("INFO  Navegador abierto para autenticacion OAuth."));
     });
     connect(auth, &GoogleAuth::authenticated, this, [this](const QString &) {
-        m_loginButton->setEnabled(true);
         appendLog(QStringLiteral("INFO  Autorizacion completada."));
         refreshAuthUi();
     });
@@ -303,34 +218,6 @@ QString MainWindow::resolveSampleDataPath() const
     return QString();
 }
 
-void MainWindow::setCurrentPage(const QString &pageId)
-{
-    const QString normalized = pageId.trimmed().isEmpty() ? QStringLiteral("home") : pageId.trimmed();
-    const int index = m_pageIndexById.value(normalized, m_pageIndexById.value(QStringLiteral("home"), 0));
-
-    m_stack->setCurrentIndex(index);
-    m_sidebar->setCurrentPage(normalized);
-
-    if (normalized == QStringLiteral("home")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Inicio"), QStringLiteral("Resumen de respaldo"));
-    } else if (normalized == QStringLiteral("courses")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Cursos"), QStringLiteral("Materias y semestres"));
-    } else if (normalized == QStringLiteral("tasks")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Tareas"), QStringLiteral("Vista de tareas"));
-    } else if (normalized == QStringLiteral("attachments")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Adjuntos"), QStringLiteral("Archivos y enlaces"));
-    } else if (normalized == QStringLiteral("history")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Historial"), QStringLiteral("Actividad y logs"));
-    } else if (normalized == QStringLiteral("settings")) {
-        m_topBar->setBreadcrumb(QStringLiteral("Configuracion"), QStringLiteral("Preferencias"));
-    }
-}
-
-QJsonObject MainWindow::readSyncState() const
-{
-    return parseJsonFileObject(m_syncManager->configManager().syncStatePath());
-}
-
 QString MainWindow::formatIsoDateTime(const QString &isoText) const
 {
     const QString clean = isoText.trimmed();
@@ -350,6 +237,326 @@ QString MainWindow::formatIsoDateTime(const QString &isoText) const
     return dt.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
 }
 
+void MainWindow::showHome()
+{
+    m_currentPage = ViewPage::Home;
+    m_currentCourseId.clear();
+    m_currentAssignmentId.clear();
+
+    m_stack->setCurrentWidget(m_home);
+    m_breadcrumb->setHome();
+    m_topBar->setPageTitle(QStringLiteral("Inicio"));
+    m_topBar->setSearchPlaceholder(QStringLiteral("Buscar materias, tareas o archivos…"));
+
+    m_home->setSearchText(m_homeSearchText);
+    refreshHomeUi();
+}
+
+void MainWindow::showCourseDetail(const QString &courseId)
+{
+    const Course *course = findCourse(courseId);
+    if (!course) {
+        appendError(QStringLiteral("Curso no encontrado: %1").arg(courseId));
+        return;
+    }
+
+    m_currentPage = ViewPage::CourseDetail;
+    m_currentCourseId = courseId;
+    m_currentAssignmentId.clear();
+
+    m_stack->setCurrentWidget(m_courseDetail);
+    m_breadcrumb->setCourse(courseId, course->name);
+    m_topBar->setPageTitle(course->name);
+    m_topBar->setSearchPlaceholder(QStringLiteral("Buscar tareas de esta materia…"));
+
+    refreshCourseUi();
+}
+
+void MainWindow::showAssignmentDetail(const QString &courseId, const QString &assignmentId)
+{
+    const Course *course = findCourse(courseId);
+    const Assignment *assignment = findAssignment(courseId, assignmentId);
+    if (!course || !assignment) {
+        appendError(QStringLiteral("No se encontro la tarea seleccionada."));
+        return;
+    }
+
+    m_currentPage = ViewPage::AssignmentDetail;
+    m_currentCourseId = courseId;
+    m_currentAssignmentId = assignmentId;
+
+    m_stack->setCurrentWidget(m_assignmentDetail);
+    m_breadcrumb->setAssignment(courseId, course->name, assignmentId, Utils::effectiveAssignmentTitle(*assignment));
+    m_topBar->setPageTitle(Utils::effectiveAssignmentTitle(*assignment));
+    m_topBar->setSearchPlaceholder(QStringLiteral("Buscar adjuntos o detalles…"));
+
+    refreshAssignmentUi();
+}
+
+QVector<CourseUiState> MainWindow::buildCourseUiStates() const
+{
+    QHash<QString, QList<Assignment>> assignmentsByCourse;
+    for (const Assignment &assignment : m_currentAssignments) {
+        assignmentsByCourse[assignment.courseId].append(assignment);
+    }
+
+    QVector<CourseUiState> result;
+    result.reserve(m_currentCourses.size());
+
+    for (const Course &course : m_currentCourses) {
+        CourseUiState ui;
+        ui.id = course.id;
+        ui.name = course.name;
+        ui.code = course.section;
+        ui.semester = m_syncManager->semesterForCourse(course.id);
+        ui.classroomUrl = course.alternateLink;
+        ui.folderPath = m_syncManager->courseFolderPath(course.id);
+
+        const QList<Assignment> list = assignmentsByCourse.value(course.id);
+        ui.totalTasks = list.size();
+
+        QDateTime newest;
+        for (const Assignment &assignment : list) {
+            const QJsonObject state = m_syncManager->assignmentState(course.id, assignment.id);
+            const QString folder = state.value(QStringLiteral("folderPath")).toString().trimmed();
+            if (!folder.isEmpty() && QFileInfo::exists(folder)) {
+                ++ui.backedUpTasks;
+            }
+
+            const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignment.id);
+            ui.attachments += attachmentObjectCount(attachments);
+
+            const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
+            const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
+            const QString candidateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
+            const QDateTime dt = QDateTime::fromString(candidateIso, Qt::ISODate);
+            if (dt.isValid() && (!newest.isValid() || dt > newest)) {
+                newest = dt;
+            }
+
+            if (!folder.isEmpty() && !QFileInfo::exists(folder)) {
+                ++ui.errors;
+            }
+        }
+
+        ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
+        ui.lastSync = newest.isValid() ? formatIsoDateTime(newest.toString(Qt::ISODate)) : QStringLiteral("—");
+        ui.status = courseStatusFromCounts(ui.totalTasks, ui.pending, ui.errors);
+
+        result.append(ui);
+    }
+
+    return result;
+}
+
+QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString &courseId) const
+{
+    QVector<AssignmentListItemData> result;
+
+    for (const Assignment &assignment : m_currentAssignments) {
+        if (assignment.courseId != courseId) {
+            continue;
+        }
+
+        AssignmentListItemData item;
+        item.courseId = courseId;
+        item.assignmentId = assignment.id;
+        item.title = Utils::effectiveAssignmentTitle(assignment);
+        item.dueDateText = assignment.dueDate.isValid() ? assignment.dueDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("Sin fecha");
+        item.stateText = assignment.state;
+        item.classroomUrl = assignment.alternateLink;
+
+        const QJsonObject state = m_syncManager->assignmentState(courseId, assignment.id);
+        item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
+
+        const QString metadataPath = m_syncManager->assignmentMetadataPath(courseId, assignment.id);
+        item.metadataStatus = QFileInfo::exists(metadataPath) ? QStringLiteral("Metadata OK") : QStringLiteral("Pendiente");
+
+        const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(courseId, assignment.id);
+        item.attachmentsCount = attachmentObjectCount(attachments);
+        item.attachmentsStatus = item.attachmentsCount > 0 ? QStringLiteral("Adjuntos guardados") : QStringLiteral("Sin adjuntos");
+
+        const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
+        const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
+        item.lastSyncText = formatIsoDateTime(!updatedIso.isEmpty() ? updatedIso : seenIso);
+
+        QString preview = assignment.description.trimmed();
+        if (preview.length() > 160) {
+            preview = preview.left(157) + QStringLiteral("...");
+        }
+        item.descriptionPreview = preview;
+
+        result.append(item);
+    }
+
+    std::sort(result.begin(), result.end(), [](const AssignmentListItemData &a, const AssignmentListItemData &b) {
+        return a.title.toLower() < b.title.toLower();
+    });
+
+    return result;
+}
+
+AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId, const QString &assignmentId) const
+{
+    AssignmentPreviewData preview;
+
+    const Assignment *assignment = findAssignment(courseId, assignmentId);
+    const Course *course = findCourse(courseId);
+
+    const QString metadataPath = m_syncManager->assignmentMetadataPath(courseId, assignmentId);
+    QString metadataError;
+    if (MetadataReader::readMetadataFile(metadataPath, &preview, &metadataError)) {
+        preview.metadataPath = metadataPath;
+        preview.localFolderPath = m_syncManager->assignmentFolderPath(courseId, assignmentId);
+
+        if (preview.courseName.trimmed().isEmpty() && course) {
+            preview.courseName = course->name;
+        }
+        if (preview.alternateLink.trimmed().isEmpty() && assignment) {
+            preview.alternateLink = assignment->alternateLink;
+        }
+
+        return preview;
+    }
+
+    preview.courseId = courseId;
+    preview.assignmentId = assignmentId;
+    preview.courseName = course ? course->name : courseId;
+    preview.title = assignment ? Utils::effectiveAssignmentTitle(*assignment) : QStringLiteral("Tarea");
+    preview.description = assignment ? assignment->description : QString();
+    preview.workType = assignment ? assignment->workType : QString();
+    preview.state = assignment ? assignment->state : QString();
+    preview.dueDateText = assignment && assignment->dueDate.isValid() ? assignment->dueDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("Sin fecha");
+    preview.dueTimeText = assignment && assignment->dueTime.isValid() ? assignment->dueTime.toString(QStringLiteral("HH:mm")) : QStringLiteral("Sin hora");
+    preview.alternateLink = assignment ? assignment->alternateLink : QString();
+    preview.localFolderPath = m_syncManager->assignmentFolderPath(courseId, assignmentId);
+    preview.metadataPath = metadataPath;
+
+    const QJsonObject state = m_syncManager->assignmentState(courseId, assignmentId);
+    preview.syncedAt = state.value(QStringLiteral("lastUpdated")).toString();
+
+    const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(courseId, assignmentId);
+    for (auto it = attachments.begin(); it != attachments.end(); ++it) {
+        if (!it.value().isObject()) {
+            continue;
+        }
+
+        const QJsonObject obj = it.value().toObject();
+        AttachmentUiState attachment;
+        attachment.id = it.key();
+        attachment.title = obj.value(QStringLiteral("title")).toString();
+        attachment.fileName = obj.value(QStringLiteral("localFileName")).toString();
+        if (attachment.fileName.isEmpty()) {
+            attachment.fileName = obj.value(QStringLiteral("name")).toString();
+        }
+        attachment.type = obj.value(QStringLiteral("type")).toString();
+        attachment.status = obj.value(QStringLiteral("status")).toString();
+        attachment.localPath = obj.value(QStringLiteral("localPath")).toString();
+        attachment.url = obj.value(QStringLiteral("url")).toString();
+        if (attachment.url.isEmpty()) {
+            attachment.url = obj.value(QStringLiteral("webViewLink")).toString();
+        }
+        attachment.sourceMimeType = obj.value(QStringLiteral("sourceMimeType")).toString();
+        attachment.exportMimeType = obj.value(QStringLiteral("exportMimeType")).toString();
+        if (obj.contains(QStringLiteral("size"))) {
+            const qint64 size = obj.value(QStringLiteral("size")).toVariant().toLongLong();
+            if (size > 0) {
+                attachment.sizeText = QString::number(size);
+            }
+        }
+        attachment.existsLocally = !attachment.localPath.trimmed().isEmpty() && QFileInfo::exists(attachment.localPath);
+        preview.attachments.append(attachment);
+    }
+
+    if (!metadataError.trimmed().isEmpty()) {
+        preview.description = preview.description.trimmed().isEmpty()
+            ? QStringLiteral("No se encontro metadata.json para esta tarea.")
+            : preview.description;
+    }
+
+    return preview;
+}
+
+QVector<ActivityItem> MainWindow::recentActivityItems(int maxItems) const
+{
+    QVector<ActivityItem> items;
+    const int count = qMin(maxItems, m_logLines.size());
+    items.reserve(count);
+
+    for (int i = m_logLines.size() - 1; i >= 0 && items.size() < count; --i) {
+        const QString line = m_logLines.at(i);
+
+        ActivityItem item;
+        item.time = QStringLiteral("--:--:--");
+        item.kind = QStringLiteral("INFO");
+        item.message = line;
+
+        if (line.startsWith(QLatin1Char('[')) && line.size() > 10) {
+            item.time = line.mid(1, 8);
+            const QString payload = line.mid(11).trimmed();
+            const int firstSpace = payload.indexOf(QLatin1Char(' '));
+            if (firstSpace > 0) {
+                item.kind = payload.left(firstSpace).trimmed();
+                item.message = payload.mid(firstSpace).trimmed();
+            } else {
+                item.message = payload;
+            }
+        }
+
+        items.append(item);
+    }
+
+    return items;
+}
+
+const Course *MainWindow::findCourse(const QString &courseId) const
+{
+    for (const Course &course : m_currentCourses) {
+        if (course.id == courseId) {
+            return &course;
+        }
+    }
+    return nullptr;
+}
+
+const Assignment *MainWindow::findAssignment(const QString &courseId, const QString &assignmentId) const
+{
+    for (const Assignment &assignment : m_currentAssignments) {
+        if (assignment.courseId == courseId && assignment.id == assignmentId) {
+            return &assignment;
+        }
+    }
+    return nullptr;
+}
+
+CourseUiState MainWindow::courseUiById(const QString &courseId) const
+{
+    const QVector<CourseUiState> all = buildCourseUiStates();
+    for (const CourseUiState &course : all) {
+        if (course.id == courseId) {
+            return course;
+        }
+    }
+
+    CourseUiState fallback;
+    fallback.id = courseId;
+    fallback.name = courseId;
+    fallback.semester = QStringLiteral("Sin semestre");
+    fallback.status = QStringLiteral("idle");
+    return fallback;
+}
+
+int MainWindow::attachmentObjectCount(const QJsonObject &attachmentsObject) const
+{
+    int count = 0;
+    for (auto it = attachmentsObject.begin(); it != attachmentsObject.end(); ++it) {
+        if (it.value().isObject()) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void MainWindow::onBrowseBasePath()
 {
     const QString selected = QFileDialog::getExistingDirectory(this, QStringLiteral("Selecciona ruta base"), m_syncManager->basePath());
@@ -360,7 +567,7 @@ void MainWindow::onBrowseBasePath()
     m_syncManager->setBasePath(selected);
     appendLog(QStringLiteral("INFO  Ruta base guardada: %1").arg(selected));
     refreshPathUi();
-    refreshDashboard();
+    refreshHomeUi();
 }
 
 void MainWindow::onOpenBaseFolder()
@@ -382,8 +589,7 @@ void MainWindow::onOpenBaseFolder()
 void MainWindow::onClearLogs()
 {
     m_logLines.clear();
-    refreshHistoryView();
-    refreshDashboard();
+    refreshActivityUi();
     refreshStatusUi();
 }
 
@@ -408,13 +614,11 @@ void MainWindow::onLogin()
 
     if (!auth->refreshToken().trimmed().isEmpty()) {
         appendLog(QStringLiteral("INFO  Intentando refrescar sesion..."));
-        m_loginButton->setEnabled(false);
         auth->refreshAccessToken();
         return;
     }
 
     appendLog(QStringLiteral("INFO  Abriendo navegador para iniciar sesion con Google..."));
-    m_loginButton->setEnabled(false);
     auth->startAuthorization();
 }
 
@@ -422,7 +626,6 @@ void MainWindow::onLogout()
 {
     m_syncManager->googleAuth()->signOut();
     appendLog(QStringLiteral("INFO  Sesion cerrada localmente."));
-    m_loginButton->setEnabled(true);
     refreshAuthUi();
 }
 
@@ -451,22 +654,6 @@ void MainWindow::onSyncFolders()
         return;
     }
 
-    QHash<QString, QString> mapping;
-    for (int row = 0; row < m_coursesTable->rowCount(); ++row) {
-        auto *idItem = m_coursesTable->item(row, 1);
-        auto *semesterItem = m_coursesTable->item(row, 2);
-        if (!idItem) {
-            continue;
-        }
-
-        const QString id = idItem->text().trimmed();
-        const QString semester = semesterItem ? semesterItem->text().trimmed() : QString();
-        if (!id.isEmpty() && !semester.isEmpty()) {
-            mapping.insert(id, semester);
-        }
-    }
-
-    m_syncManager->setSemesterMapping(mapping);
     m_runtimeStatus = QStringLiteral("Sincronizando");
     m_syncProgressCurrent = 0;
     m_syncProgressTotal = 0;
@@ -513,7 +700,6 @@ void MainWindow::onAuthStatusChanged(const QString &status)
 
         if (!ok || code.trimmed().isEmpty()) {
             appendLog(QStringLiteral("INFO  Autorizacion manual cancelada."));
-            m_loginButton->setEnabled(true);
             return;
         }
 
@@ -522,7 +708,6 @@ void MainWindow::onAuthStatusChanged(const QString &status)
     }
 
     if (status == QStringLiteral("authenticated") || status == QStringLiteral("token_refreshed")) {
-        m_loginButton->setEnabled(true);
         m_runtimeStatus = QStringLiteral("Conectado");
         refreshStatusUi();
         refreshAuthUi();
@@ -530,7 +715,6 @@ void MainWindow::onAuthStatusChanged(const QString &status)
     }
 
     if (status == QStringLiteral("failed") || status == QStringLiteral("cancelled") || status == QStringLiteral("signed_out")) {
-        m_loginButton->setEnabled(true);
         m_runtimeStatus = QStringLiteral("No conectado");
         refreshStatusUi();
         refreshAuthUi();
@@ -540,7 +724,6 @@ void MainWindow::onAuthStatusChanged(const QString &status)
 void MainWindow::onAuthFailed(const QString &errorMessage)
 {
     Q_UNUSED(errorMessage)
-    m_loginButton->setEnabled(true);
     refreshAuthUi();
 }
 
@@ -554,35 +737,6 @@ void MainWindow::onAssignmentsChanged(const QList<Assignment> &assignments)
 {
     m_currentAssignments = assignments;
     refreshAllViews();
-}
-
-void MainWindow::onCourseTableItemChanged(QTableWidgetItem *item)
-{
-    if (!item || m_updatingCourseTable || item->column() != 2) {
-        return;
-    }
-
-    auto *idItem = m_coursesTable->item(item->row(), 1);
-    if (!idItem) {
-        return;
-    }
-
-    m_syncManager->setSemesterForCourse(idItem->text().trimmed(), item->text().trimmed());
-    refreshDashboard();
-}
-
-void MainWindow::onTaskActivated(const QString &courseId, const QString &assignmentId)
-{
-    const QString path = m_syncManager->assignmentFolderPath(courseId, assignmentId);
-    if (path.trimmed().isEmpty() || !QFileInfo::exists(path)) {
-        QMessageBox::information(
-            this,
-            QStringLiteral("Carpeta no encontrada"),
-            QStringLiteral("La tarea aun no tiene carpeta sincronizada."));
-        return;
-    }
-
-    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 void MainWindow::onSyncProgress(int current, int total)
@@ -625,7 +779,7 @@ void MainWindow::onCountersChanged(
     m_errorCount = errorCount;
 
     refreshStatusUi();
-    refreshDashboard();
+    refreshHomeUi();
 }
 
 void MainWindow::onAttachmentProgress(int current, int total)
@@ -658,67 +812,148 @@ void MainWindow::onAttachmentCountersChanged(int blobDownloaded, int exported, i
     m_attachmentErrors = errors;
 
     refreshStatusUi();
-    refreshDashboard();
+    refreshHomeUi();
 }
 
-void MainWindow::onNavigationRequested(const QString &pageId)
+void MainWindow::onHomeCourseSelected(const QString &courseId)
 {
-    setCurrentPage(pageId);
+    showCourseDetail(courseId);
 }
 
-void MainWindow::onToggleSidebar()
+void MainWindow::onOpenCourseFolder(const QString &courseId)
 {
-    m_sidebar->setCompact(!m_sidebar->isCompact());
-}
-
-void MainWindow::onDashboardOpenCourse(const QString &courseId)
-{
-    setCurrentPage(QStringLiteral("tasks"));
-    appendLog(QStringLiteral("INFO  Curso seleccionado: %1").arg(courseId));
-}
-
-void MainWindow::onDashboardOpenFolder(const QString &courseId)
-{
-    const QJsonObject state = readSyncState();
-    const QJsonObject courseObj = state.value(QStringLiteral("courses")).toObject().value(courseId).toObject();
-    const QString path = courseObj.value(QStringLiteral("folderPath")).toString().trimmed();
-
+    const QString path = m_syncManager->courseFolderPath(courseId).trimmed();
     if (path.isEmpty() || !QFileInfo::exists(path)) {
-        appendError(QStringLiteral("No hay carpeta de curso sincronizada para %1").arg(courseId));
+        appendError(QStringLiteral("No hay carpeta sincronizada para este curso."));
         return;
     }
 
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
-void MainWindow::onDashboardSyncCourse(const QString &courseId)
+void MainWindow::onSyncCourseRequested(const QString &courseId)
 {
-    appendLog(QStringLiteral("INFO  Sync por curso (%1) aun no es granular; se ejecuta sync general.").arg(courseId));
+    appendLog(QStringLiteral("INFO  Sincronizacion por curso (%1) pendiente. Se ejecuta sincronizacion general.").arg(courseId));
     onSyncFolders();
 }
 
-void MainWindow::onDashboardDownloadAttachments(const QString &courseId)
+void MainWindow::onOpenCourseClassroom(const QString &courseId)
 {
-    appendLog(QStringLiteral("INFO  Descarga de adjuntos por curso (%1) aun no es granular; se ejecuta descarga general.").arg(courseId));
-    onDownloadAttachments();
-}
-
-void MainWindow::onDashboardOpenClassroom(const QString &courseId)
-{
-    QString url;
-    for (const Course &course : m_currentCourses) {
-        if (course.id == courseId) {
-            url = course.alternateLink.trimmed();
-            break;
-        }
-    }
-
-    if (url.isEmpty()) {
-        appendError(QStringLiteral("Curso sin enlace de Classroom: %1").arg(courseId));
+    const Course *course = findCourse(courseId);
+    if (!course || course->alternateLink.trimmed().isEmpty()) {
+        appendError(QStringLiteral("Curso sin enlace de Classroom."));
         return;
     }
 
-    QDesktopServices::openUrl(QUrl(url));
+    QDesktopServices::openUrl(QUrl(course->alternateLink));
+}
+
+void MainWindow::onCourseBackRequested()
+{
+    showHome();
+}
+
+void MainWindow::onAssignmentSelected(const QString &courseId, const QString &assignmentId)
+{
+    showAssignmentDetail(courseId, assignmentId);
+}
+
+void MainWindow::onOpenAssignmentFolder(const QString &courseId, const QString &assignmentId)
+{
+    const QString path = m_syncManager->assignmentFolderPath(courseId, assignmentId).trimmed();
+    if (path.isEmpty() || !QFileInfo::exists(path)) {
+        QMessageBox::information(this, QStringLiteral("Tarea"), QStringLiteral("La tarea no tiene carpeta sincronizada."));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
+
+void MainWindow::onOpenAssignmentClassroom(const QString &courseId, const QString &assignmentId)
+{
+    const Assignment *assignment = findAssignment(courseId, assignmentId);
+    if (!assignment || assignment->alternateLink.trimmed().isEmpty()) {
+        appendError(QStringLiteral("Tarea sin enlace de Classroom."));
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl(assignment->alternateLink));
+}
+
+void MainWindow::onDownloadAssignmentAttachments(const QString &courseId, const QString &assignmentId)
+{
+    appendLog(
+        QStringLiteral("INFO  Descarga por tarea (%1:%2) pendiente; se ejecuta descarga global de adjuntos.")
+            .arg(courseId, assignmentId));
+    onDownloadAttachments();
+}
+
+void MainWindow::onAssignmentBackRequested()
+{
+    if (m_currentCourseId.trimmed().isEmpty()) {
+        showHome();
+        return;
+    }
+
+    showCourseDetail(m_currentCourseId);
+}
+
+void MainWindow::onResyncAssignmentMetadata(const QString &courseId, const QString &assignmentId)
+{
+    appendLog(
+        QStringLiteral("INFO  Re-sincronizando metadata de tarea (%1:%2) via sincronizacion general.")
+            .arg(courseId, assignmentId));
+    onSyncFolders();
+}
+
+void MainWindow::onBreadcrumbHomeRequested()
+{
+    showHome();
+}
+
+void MainWindow::onBreadcrumbCourseRequested(const QString &courseId)
+{
+    showCourseDetail(courseId);
+}
+
+void MainWindow::onTopBarSearchChanged(const QString &text)
+{
+    if (m_currentPage == ViewPage::Home) {
+        m_homeSearchText = text.trimmed();
+        m_home->setSearchText(m_homeSearchText);
+        return;
+    }
+
+    if (m_currentPage == ViewPage::CourseDetail) {
+        m_courseSearchText = text.trimmed();
+        m_courseDetail->setSearchText(m_courseSearchText);
+        return;
+    }
+}
+
+void MainWindow::onTopBarAccountRequested()
+{
+    QMenu menu(this);
+    QAction *loginAction = menu.addAction(QStringLiteral("Iniciar sesion"));
+    QAction *logoutAction = menu.addAction(QStringLiteral("Cerrar sesion"));
+    menu.addSeparator();
+    QAction *classroomAction = menu.addAction(QStringLiteral("Cargar Classroom"));
+    QAction *sampleAction = menu.addAction(QStringLiteral("Cargar datos de prueba"));
+
+    QAction *selected = menu.exec(QCursor::pos());
+    if (!selected) {
+        return;
+    }
+
+    if (selected == loginAction) {
+        onLogin();
+    } else if (selected == logoutAction) {
+        onLogout();
+    } else if (selected == classroomAction) {
+        onLoadClassroom();
+    } else if (selected == sampleAction) {
+        onLoadSampleData();
+    }
 }
 
 void MainWindow::appendLog(const QString &message)
@@ -733,9 +968,7 @@ void MainWindow::appendLog(const QString &message)
     }
 
     m_statusBarWidget->setLastActionText(normalized);
-
-    refreshHistoryView();
-    refreshDashboard();
+    refreshActivityUi();
 }
 
 void MainWindow::appendError(const QString &message)
@@ -760,20 +993,14 @@ void MainWindow::refreshAuthUi()
 
     m_topBar->setConnectionState(state);
     m_topBar->setConnectedEmail(QString());
-
-    m_settingsView->setConnectedEmail(QString());
-    m_settingsView->setTokenStatus(state);
 }
 
 void MainWindow::refreshPathUi()
 {
-    const QString basePath = m_syncManager->basePath();
-    m_pathBar->setBasePath(basePath);
-    m_settingsView->setBasePath(basePath);
+    m_pathBar->setBasePath(m_syncManager->basePath());
 
-    const QJsonObject state = readSyncState();
-    const QString lastSyncIso = state.value(QStringLiteral("lastSync")).toString();
-    m_pathBar->setLastSyncText(formatIsoDateTime(lastSyncIso));
+    const QJsonObject state = parseJsonFileObject(m_syncManager->configManager().syncStatePath());
+    m_pathBar->setLastSyncText(formatIsoDateTime(state.value(QStringLiteral("lastSync")).toString()));
 }
 
 void MainWindow::refreshStatusUi()
@@ -783,266 +1010,62 @@ void MainWindow::refreshStatusUi()
     m_statusBarWidget->setProgress(m_syncProgressCurrent, m_syncProgressTotal);
 }
 
-void MainWindow::refreshCourseTable()
+void MainWindow::refreshActivityUi()
 {
-    m_updatingCourseTable = true;
-    m_coursesTable->setRowCount(m_currentCourses.size());
-
-    for (int row = 0; row < m_currentCourses.size(); ++row) {
-        const Course &course = m_currentCourses.at(row);
-
-        auto *nameItem = new QTableWidgetItem(course.name);
-        auto *idItem = new QTableWidgetItem(course.id);
-        auto *semesterItem = new QTableWidgetItem(m_syncManager->semesterForCourse(course.id));
-
-        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
-        idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
-
-        m_coursesTable->setItem(row, 0, nameItem);
-        m_coursesTable->setItem(row, 1, idItem);
-        m_coursesTable->setItem(row, 2, semesterItem);
-    }
-
-    m_updatingCourseTable = false;
+    m_activityDrawer->setItems(recentActivityItems(80));
 }
 
-void MainWindow::refreshTasksView()
+void MainWindow::refreshHomeUi()
 {
-    const QJsonObject state = readSyncState();
-    const QJsonObject coursesState = state.value(QStringLiteral("courses")).toObject();
-
-    QHash<QString, QString> courseNameById;
-    for (const Course &course : m_currentCourses) {
-        courseNameById.insert(course.id, course.name);
-    }
-
-    QVector<TaskRowData> rows;
-    rows.reserve(m_currentAssignments.size());
-
-    for (const Assignment &assignment : m_currentAssignments) {
-        TaskRowData row;
-        row.courseId = assignment.courseId;
-        row.assignmentId = assignment.id;
-        row.courseName = courseNameById.value(assignment.courseId, assignment.courseId);
-        row.title = Utils::effectiveAssignmentTitle(assignment);
-        row.dueDate = assignment.dueDate.isValid() ? assignment.dueDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("Sin fecha");
-        row.state = assignment.state;
-
-        const QJsonObject courseObj = coursesState.value(assignment.courseId).toObject();
-        const QJsonObject assignmentsObj = courseObj.value(QStringLiteral("assignments")).toObject();
-        const QJsonObject assignmentObj = assignmentsObj.value(assignment.id).toObject();
-
-        const QString metadataHash = assignmentObj.value(QStringLiteral("metadataHash")).toString().trimmed();
-        row.folderPath = assignmentObj.value(QStringLiteral("folderPath")).toString().trimmed();
-        row.metadataStatus = metadataHash.isEmpty() ? QStringLiteral("Pendiente") : QStringLiteral("OK");
-
-        const QJsonObject attachmentsObj = assignmentObj.value(QStringLiteral("attachments")).toObject();
-        const int attachmentCount = attachmentObjectCount(attachmentsObj);
-        row.attachmentsStatus = attachmentCount > 0 ? QString::number(attachmentCount) : QStringLiteral("—");
-        row.files = attachmentCount;
-
-        const QString lastSeen = assignmentObj.value(QStringLiteral("lastSeen")).toString();
-        const QString lastUpdated = assignmentObj.value(QStringLiteral("lastUpdated")).toString();
-        row.lastSync = formatIsoDateTime(!lastUpdated.isEmpty() ? lastUpdated : lastSeen);
-
-        rows.append(row);
-    }
-
-    m_tasksView->setRows(rows);
-}
-
-void MainWindow::refreshAttachmentsView()
-{
-    const QJsonObject state = readSyncState();
-    const QJsonObject coursesState = state.value(QStringLiteral("courses")).toObject();
-
-    QHash<QString, QString> courseNameById;
-    for (const Course &course : m_currentCourses) {
-        courseNameById.insert(course.id, course.name);
-    }
-
-    QHash<QString, QString> assignmentTitleByKey;
-    for (const Assignment &assignment : m_currentAssignments) {
-        assignmentTitleByKey.insert(assignment.courseId + QStringLiteral(":") + assignment.id, Utils::effectiveAssignmentTitle(assignment));
-    }
-
-    QVector<AttachmentRowData> rows;
-
-    for (auto courseIt = coursesState.begin(); courseIt != coursesState.end(); ++courseIt) {
-        const QString courseId = courseIt.key();
-        const QJsonObject courseObj = courseIt.value().toObject();
-        const QJsonObject assignmentsObj = courseObj.value(QStringLiteral("assignments")).toObject();
-
-        for (auto assignmentIt = assignmentsObj.begin(); assignmentIt != assignmentsObj.end(); ++assignmentIt) {
-            const QString assignmentId = assignmentIt.key();
-            const QJsonObject assignmentObj = assignmentIt.value().toObject();
-            const QJsonObject attachmentsObj = assignmentObj.value(QStringLiteral("attachments")).toObject();
-            if (attachmentsObj.isEmpty()) {
-                continue;
-            }
-
-            const QString assignmentKey = courseId + QStringLiteral(":") + assignmentId;
-            const QString assignmentTitle = assignmentTitleByKey.value(
-                assignmentKey,
-                assignmentObj.value(QStringLiteral("title")).toString().trimmed());
-
-            for (auto attachmentIt = attachmentsObj.begin(); attachmentIt != attachmentsObj.end(); ++attachmentIt) {
-                const QJsonObject attachment = attachmentIt.value().toObject();
-                if (attachment.isEmpty()) {
-                    continue;
-                }
-
-                AttachmentRowData row;
-                row.courseName = courseNameById.value(courseId, courseId);
-                row.assignmentTitle = assignmentTitle.isEmpty() ? QStringLiteral("Tarea") : assignmentTitle;
-                row.fileName = attachment.value(QStringLiteral("localFileName")).toString();
-                if (row.fileName.isEmpty()) {
-                    row.fileName = attachment.value(QStringLiteral("name")).toString();
-                }
-                if (row.fileName.isEmpty()) {
-                    row.fileName = attachment.value(QStringLiteral("title")).toString();
-                }
-
-                row.type = attachment.value(QStringLiteral("type")).toString();
-                if (row.type.isEmpty()) {
-                    row.type = attachment.value(QStringLiteral("sourceMimeType")).toString();
-                }
-                row.status = attachment.value(QStringLiteral("status")).toString();
-                row.localPath = attachment.value(QStringLiteral("localPath")).toString();
-
-                if (attachment.contains(QStringLiteral("size"))) {
-                    const qint64 size = attachment.value(QStringLiteral("size")).toVariant().toLongLong();
-                    if (size > 0) {
-                        row.size = QString::number(size);
-                    }
-                }
-                if (row.size.isEmpty()) {
-                    row.size = QStringLiteral("—");
-                }
-
-                rows.append(row);
-            }
-        }
-    }
-
-    m_attachmentsView->setRows(rows);
-}
-
-void MainWindow::refreshDashboard()
-{
-    const QJsonObject state = readSyncState();
-    const QJsonObject coursesState = state.value(QStringLiteral("courses")).toObject();
-
-    QHash<QString, QList<Assignment>> assignmentsByCourse;
-    for (const Assignment &assignment : m_currentAssignments) {
-        assignmentsByCourse[assignment.courseId].append(assignment);
-    }
+    const QVector<CourseUiState> courses = buildCourseUiStates();
 
     int pendingTotal = 0;
     int attachmentsTotal = 0;
-
-    QVector<CourseUiState> coursesUi;
-    coursesUi.reserve(m_currentCourses.size());
-
-    for (const Course &course : m_currentCourses) {
-        CourseUiState ui;
-        ui.id = course.id;
-        ui.name = course.name;
-        ui.code = course.section;
-        ui.semester = m_syncManager->semesterForCourse(course.id);
-        ui.classroomUrl = course.alternateLink;
-
-        const QJsonObject courseObj = coursesState.value(course.id).toObject();
-        ui.folderPath = courseObj.value(QStringLiteral("folderPath")).toString();
-
-        const QList<Assignment> courseAssignments = assignmentsByCourse.value(course.id);
-        ui.totalTasks = courseAssignments.size();
-
-        const QJsonObject assignmentsObj = courseObj.value(QStringLiteral("assignments")).toObject();
-        QDateTime newest;
-
-        for (const Assignment &assignment : courseAssignments) {
-            const QJsonObject assignmentObj = assignmentsObj.value(assignment.id).toObject();
-            const QString assignmentFolder = assignmentObj.value(QStringLiteral("folderPath")).toString().trimmed();
-            if (!assignmentFolder.isEmpty() && QFileInfo::exists(assignmentFolder)) {
-                ++ui.backedUpTasks;
-            }
-
-            const QJsonObject attachmentsObj = assignmentObj.value(QStringLiteral("attachments")).toObject();
-            const int courseAttachmentCount = attachmentObjectCount(attachmentsObj);
-            ui.attachments += courseAttachmentCount;
-
-            const QString seenIso = assignmentObj.value(QStringLiteral("lastSeen")).toString().trimmed();
-            const QString updatedIso = assignmentObj.value(QStringLiteral("lastUpdated")).toString().trimmed();
-            const QString dateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
-            const QDateTime dt = QDateTime::fromString(dateIso, Qt::ISODate);
-            if (dt.isValid() && (!newest.isValid() || dt > newest)) {
-                newest = dt;
-            }
-
-            if (!assignmentFolder.isEmpty() && !QFileInfo::exists(assignmentFolder)) {
-                ++ui.errors;
-            }
-        }
-
-        ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
-        ui.lastSync = newest.isValid() ? formatIsoDateTime(newest.toString(Qt::ISODate)) : QStringLiteral("—");
-        ui.status = statusForCourse(ui);
-
-        pendingTotal += ui.pending;
-        attachmentsTotal += ui.attachments;
-
-        coursesUi.append(ui);
+    int courseErrors = 0;
+    for (const CourseUiState &course : courses) {
+        pendingTotal += course.pending;
+        attachmentsTotal += course.attachments;
+        courseErrors += course.errors;
     }
 
     QVector<KpiData> kpis;
     kpis.reserve(5);
-    kpis.append(KpiData{QStringLiteral("Cursos"), m_coursesCount, QStringLiteral("◧"), QStringLiteral("idle")});
-    kpis.append(KpiData{QStringLiteral("Tareas"), m_assignmentsCount, QStringLiteral("✓"), QStringLiteral("idle")});
-    kpis.append(KpiData{QStringLiteral("Adjuntos"), attachmentsTotal, QStringLiteral("⬇"), QStringLiteral("complete")});
-    kpis.append(KpiData{QStringLiteral("Pendientes"), pendingTotal, QStringLiteral("◔"), QStringLiteral("pending")});
-    kpis.append(KpiData{QStringLiteral("Errores"), m_errorCount + m_attachmentErrors, QStringLiteral("!"), QStringLiteral("error")});
+    kpis.append(KpiData{QStringLiteral("Cursos"), m_coursesCount, QStringLiteral("[C]"), QStringLiteral("idle")});
+    kpis.append(KpiData{QStringLiteral("Tareas"), m_assignmentsCount, QStringLiteral("[T]"), QStringLiteral("idle")});
+    kpis.append(KpiData{QStringLiteral("Adjuntos"), attachmentsTotal, QStringLiteral("[A]"), QStringLiteral("complete")});
+    kpis.append(KpiData{QStringLiteral("Pendientes"), pendingTotal, QStringLiteral("[P]"), QStringLiteral("pending")});
+    kpis.append(KpiData{QStringLiteral("Errores"), m_errorCount + m_attachmentErrors + courseErrors, QStringLiteral("[E]"), QStringLiteral("error")});
 
-    QVector<ActivityItem> recent;
-    const int recentCount = qMin(25, m_logLines.size());
-    recent.reserve(recentCount);
+    m_home->setKpis(kpis);
+    m_home->setCourses(courses);
+    m_home->setActivity(recentActivityItems(24));
+    m_home->setBasePath(m_syncManager->basePath());
+    m_home->setStorageSummary(QStringLiteral("No calculado"), attachmentsTotal);
 
-    for (int i = m_logLines.size() - 1; i >= 0 && recent.size() < recentCount; --i) {
-        const QString line = m_logLines.at(i);
+    const QJsonObject state = parseJsonFileObject(m_syncManager->configManager().syncStatePath());
+    m_home->setLastSyncText(QStringLiteral("Ultima sync · %1").arg(formatIsoDateTime(state.value(QStringLiteral("lastSync")).toString())));
 
-        ActivityItem item;
-        item.time = QStringLiteral("--:--:--");
-        item.kind = QStringLiteral("INFO");
-        item.message = line;
-
-        if (line.startsWith(QLatin1Char('[')) && line.size() > 10) {
-            item.time = line.mid(1, 8);
-            QString payload = line.mid(11).trimmed();
-            const int firstSpace = payload.indexOf(QLatin1Char(' '));
-            if (firstSpace > 0) {
-                item.kind = payload.left(firstSpace).trimmed();
-                item.message = payload.mid(firstSpace).trimmed();
-            } else {
-                item.message = payload;
-            }
-        }
-
-        recent.append(item);
-    }
-
-    m_dashboard->setKpis(kpis);
-    m_dashboard->setCourses(coursesUi);
-    m_dashboard->setActivity(recent);
-    m_dashboard->setBasePath(m_syncManager->basePath());
-    m_dashboard->setStorageSummary(QStringLiteral("No calculado"), attachmentsTotal);
-
-    const QString lastSyncIso = state.value(QStringLiteral("lastSync")).toString();
-    m_dashboard->setLastSyncText(QStringLiteral("Ultima sync · %1").arg(formatIsoDateTime(lastSyncIso)));
+    m_home->setSearchText(m_homeSearchText);
 }
 
-void MainWindow::refreshHistoryView()
+void MainWindow::refreshCourseUi()
 {
-    m_historyView->setLogLines(m_logLines);
+    if (m_currentCourseId.trimmed().isEmpty()) {
+        return;
+    }
+
+    m_courseDetail->setCourse(courseUiById(m_currentCourseId));
+    m_courseDetail->setAssignments(buildCourseAssignments(m_currentCourseId));
+    m_courseDetail->setSearchText(m_courseSearchText);
+}
+
+void MainWindow::refreshAssignmentUi()
+{
+    if (m_currentCourseId.trimmed().isEmpty() || m_currentAssignmentId.trimmed().isEmpty()) {
+        return;
+    }
+
+    m_assignmentDetail->setPreviewData(buildAssignmentPreview(m_currentCourseId, m_currentAssignmentId));
 }
 
 void MainWindow::refreshAllViews()
@@ -1050,11 +1073,13 @@ void MainWindow::refreshAllViews()
     refreshAuthUi();
     refreshPathUi();
     refreshStatusUi();
-    refreshCourseTable();
-    refreshTasksView();
-    refreshAttachmentsView();
-    refreshHistoryView();
-    refreshDashboard();
+    refreshActivityUi();
+    refreshHomeUi();
 
-    m_settingsView->setAutoDownloadAttachments(m_syncManager->autoDownloadAttachments());
+    if (m_currentPage == ViewPage::CourseDetail) {
+        refreshCourseUi();
+    } else if (m_currentPage == ViewPage::AssignmentDetail) {
+        refreshCourseUi();
+        refreshAssignmentUi();
+    }
 }

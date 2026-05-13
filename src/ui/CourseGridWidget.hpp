@@ -15,6 +15,7 @@ public:
 
     void setCourses(const QVector<CourseUiState> &courses);
     void setFilter(const QString &filter);
+    void setSearchText(const QString &text);
 
 signals:
     void openCourseRequested(const QString &courseId);
@@ -34,6 +35,7 @@ private:
 
     QVector<CourseUiState> m_courses;
     QString m_filter = QStringLiteral("all");
+    QString m_searchText;
 
     QWidget *m_gridContainer = nullptr;
     QGridLayout *m_grid = nullptr;

@@ -146,6 +146,26 @@ QString SyncManager::assignmentFolderPath(const QString &courseId, const QString
     return m_syncStateManager.assignmentFolderPath(courseId, assignmentId);
 }
 
+QString SyncManager::courseFolderPath(const QString &courseId) const
+{
+    return m_syncStateManager.courseFolderPath(courseId);
+}
+
+QString SyncManager::assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const
+{
+    return m_syncStateManager.assignmentMetadataPath(courseId, assignmentId);
+}
+
+QJsonObject SyncManager::assignmentState(const QString &courseId, const QString &assignmentId) const
+{
+    return m_syncStateManager.assignmentState(courseId, assignmentId);
+}
+
+QJsonObject SyncManager::assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const
+{
+    return m_syncStateManager.assignmentAttachmentsState(courseId, assignmentId);
+}
+
 void SyncManager::refreshAuthConfig()
 {
     m_googleAuth.setClientConfig(

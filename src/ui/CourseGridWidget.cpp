@@ -39,6 +39,17 @@ void CourseGridWidget::setFilter(const QString &filter)
     scheduleRefresh(true);
 }
 
+void CourseGridWidget::setSearchText(const QString &text)
+{
+    const QString normalized = text.trimmed().toLower();
+    if (m_searchText == normalized) {
+        return;
+    }
+
+    m_searchText = normalized;
+    scheduleRefresh(true);
+}
+
 int CourseGridWidget::columnsForWidth(int width) const
 {
     const int available = qMax(320, width);
@@ -72,9 +83,19 @@ QVector<CourseUiState> CourseGridWidget::filteredCourses() const
 
     QVector<CourseUiState> result;
     for (const CourseUiState &course : m_courses) {
-        if (course.status.toLower() == m_filter) {
-            result.append(course);
+        if (course.status.toLower() != m_filter) {
+            continue;
         }
+
+        if (!m_searchText.isEmpty()) {
+            const QString haystack =
+                (course.name + QLatin1Char(' ') + course.semester + QLatin1Char(' ') + course.code).toLower();
+            if (!haystack.contains(m_searchText)) {
+                continue;
+            }
+        }
+
+        result.append(course);
     }
     return result;
 }

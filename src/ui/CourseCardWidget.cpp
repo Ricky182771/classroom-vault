@@ -3,6 +3,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -141,6 +142,14 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
 CourseUiState CourseCardWidget::course() const
 {
     return m_course;
+}
+
+void CourseCardWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (event && event->button() == Qt::LeftButton) {
+        emit openCourseRequested(m_course.id);
+    }
+    QFrame::mousePressEvent(event);
 }
 
 void CourseCardWidget::applyStatusUi(const QString &status)

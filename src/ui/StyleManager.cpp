@@ -21,12 +21,15 @@ QWidget {
 QFrame#Sidebar,
 QFrame#TopBar,
 QFrame#PathBar,
+QFrame#BreadcrumbBar,
+QFrame#ActivityDrawer,
 QFrame#StatusBar {
     background: #232429;
     border: 1px solid #2F313A;
 }
 QFrame#TopBar,
 QFrame#PathBar,
+QFrame#BreadcrumbBar,
 QFrame#StatusBar {
     border-left: 0;
     border-right: 0;
@@ -37,6 +40,8 @@ QFrame#StorageCard,
 QFrame#ActivityPanel,
 QFrame#KpiCard,
 QFrame#CourseCard,
+QFrame#AssignmentItem,
+QFrame#AttachmentCard,
 QFrame#Section {
     background: #2A2C33;
     border: 1px solid #3A3D46;

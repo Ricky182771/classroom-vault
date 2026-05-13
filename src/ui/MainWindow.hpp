@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Models.hpp"
+#include "UiModels.hpp"
 
 #include <QMainWindow>
 #include <QHash>
@@ -8,19 +9,15 @@
 #include <QStringList>
 
 class SyncManager;
-class SidebarWidget;
 class TopBarWidget;
 class PathBarWidget;
-class DashboardWidget;
+class BreadcrumbWidget;
+class HomeDashboardWidget;
+class CourseDetailWidget;
+class AssignmentDetailWidget;
+class ActivityDrawerWidget;
 class StatusBarWidget;
-class TasksViewWidget;
-class AttachmentsViewWidget;
-class HistoryViewWidget;
-class SettingsViewWidget;
 class QStackedWidget;
-class QTableWidget;
-class QTableWidgetItem;
-class QPushButton;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,6 +25,13 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override = default;
+
+private:
+    enum class ViewPage {
+        Home,
+        CourseDetail,
+        AssignmentDetail,
+    };
 
 private slots:
     void onBrowseBasePath();
@@ -45,8 +49,6 @@ private slots:
 
     void onCoursesChanged(const QList<Course> &courses);
     void onAssignmentsChanged(const QList<Assignment> &assignments);
-    void onCourseTableItemChanged(QTableWidgetItem *item);
-    void onTaskActivated(const QString &courseId, const QString &assignmentId);
 
     void onSyncProgress(int current, int total);
     void onSyncFinished(int newCount, int updatedCount, int unchangedCount, int errorCount);
@@ -61,13 +63,25 @@ private slots:
     void onAttachmentFinished(int downloaded, int skipped, int errors);
     void onAttachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors);
 
-    void onNavigationRequested(const QString &pageId);
-    void onToggleSidebar();
-    void onDashboardOpenCourse(const QString &courseId);
-    void onDashboardOpenFolder(const QString &courseId);
-    void onDashboardSyncCourse(const QString &courseId);
-    void onDashboardDownloadAttachments(const QString &courseId);
-    void onDashboardOpenClassroom(const QString &courseId);
+    void onHomeCourseSelected(const QString &courseId);
+    void onOpenCourseFolder(const QString &courseId);
+    void onSyncCourseRequested(const QString &courseId);
+    void onOpenCourseClassroom(const QString &courseId);
+
+    void onCourseBackRequested();
+    void onAssignmentSelected(const QString &courseId, const QString &assignmentId);
+    void onOpenAssignmentFolder(const QString &courseId, const QString &assignmentId);
+    void onOpenAssignmentClassroom(const QString &courseId, const QString &assignmentId);
+    void onDownloadAssignmentAttachments(const QString &courseId, const QString &assignmentId);
+
+    void onAssignmentBackRequested();
+    void onResyncAssignmentMetadata(const QString &courseId, const QString &assignmentId);
+
+    void onBreadcrumbHomeRequested();
+    void onBreadcrumbCourseRequested(const QString &courseId);
+
+    void onTopBarSearchChanged(const QString &text);
+    void onTopBarAccountRequested();
 
     void appendLog(const QString &message);
     void appendError(const QString &message);
@@ -77,49 +91,57 @@ private:
     void connectSignals();
 
     QString resolveSampleDataPath() const;
-    void setCurrentPage(const QString &pageId);
-
-    QJsonObject readSyncState() const;
     QString formatIsoDateTime(const QString &isoText) const;
+
+    void showHome();
+    void showCourseDetail(const QString &courseId);
+    void showAssignmentDetail(const QString &courseId, const QString &assignmentId);
+
+    QVector<CourseUiState> buildCourseUiStates() const;
+    QVector<AssignmentListItemData> buildCourseAssignments(const QString &courseId) const;
+    AssignmentPreviewData buildAssignmentPreview(const QString &courseId, const QString &assignmentId) const;
+    QVector<ActivityItem> recentActivityItems(int maxItems = 40) const;
+
+    const Course *findCourse(const QString &courseId) const;
+    const Assignment *findAssignment(const QString &courseId, const QString &assignmentId) const;
+    CourseUiState courseUiById(const QString &courseId) const;
+
+    int attachmentObjectCount(const QJsonObject &attachmentsObject) const;
 
     void refreshAuthUi();
     void refreshPathUi();
     void refreshStatusUi();
-    void refreshCourseTable();
-    void refreshTasksView();
-    void refreshAttachmentsView();
-    void refreshDashboard();
-    void refreshHistoryView();
+    void refreshActivityUi();
+    void refreshHomeUi();
+    void refreshCourseUi();
+    void refreshAssignmentUi();
     void refreshAllViews();
 
     SyncManager *m_syncManager = nullptr;
 
-    SidebarWidget *m_sidebar = nullptr;
     TopBarWidget *m_topBar = nullptr;
     PathBarWidget *m_pathBar = nullptr;
+    BreadcrumbWidget *m_breadcrumb = nullptr;
     QStackedWidget *m_stack = nullptr;
-    DashboardWidget *m_dashboard = nullptr;
+
+    HomeDashboardWidget *m_home = nullptr;
+    CourseDetailWidget *m_courseDetail = nullptr;
+    AssignmentDetailWidget *m_assignmentDetail = nullptr;
+
+    ActivityDrawerWidget *m_activityDrawer = nullptr;
     StatusBarWidget *m_statusBarWidget = nullptr;
-
-    QWidget *m_coursesPage = nullptr;
-    QTableWidget *m_coursesTable = nullptr;
-    QPushButton *m_loginButton = nullptr;
-    QPushButton *m_logoutButton = nullptr;
-    QPushButton *m_loadSampleButton = nullptr;
-    QPushButton *m_loadClassroomButton = nullptr;
-
-    TasksViewWidget *m_tasksView = nullptr;
-    AttachmentsViewWidget *m_attachmentsView = nullptr;
-    HistoryViewWidget *m_historyView = nullptr;
-    SettingsViewWidget *m_settingsView = nullptr;
-
-    QHash<QString, int> m_pageIndexById;
 
     QList<Course> m_currentCourses;
     QList<Assignment> m_currentAssignments;
 
+    QString m_currentCourseId;
+    QString m_currentAssignmentId;
+    ViewPage m_currentPage = ViewPage::Home;
+
+    QString m_homeSearchText;
+    QString m_courseSearchText;
+
     QStringList m_logLines;
-    bool m_updatingCourseTable = false;
 
     int m_coursesCount = 0;
     int m_assignmentsCount = 0;

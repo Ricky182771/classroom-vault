@@ -35,6 +35,22 @@ qt_add_executable(classroom-vault
     src/ui/StyleManager.hpp
     src/ui/StyleManager.cpp
     src/ui/UiModels.hpp
+    src/ui/BreadcrumbWidget.hpp
+    src/ui/BreadcrumbWidget.cpp
+    src/ui/HomeDashboardWidget.hpp
+    src/ui/HomeDashboardWidget.cpp
+    src/ui/CourseDetailWidget.hpp
+    src/ui/CourseDetailWidget.cpp
+    src/ui/AssignmentListItemWidget.hpp
+    src/ui/AssignmentListItemWidget.cpp
+    src/ui/AssignmentDetailWidget.hpp
+    src/ui/AssignmentDetailWidget.cpp
+    src/ui/AttachmentCardWidget.hpp
+    src/ui/AttachmentCardWidget.cpp
+    src/ui/ActivityDrawerWidget.hpp
+    src/ui/ActivityDrawerWidget.cpp
+    src/ui/MetadataReader.hpp
+    src/ui/MetadataReader.cpp
     src/ui/SidebarWidget.hpp
     src/ui/SidebarWidget.cpp
     src/ui/TopBarWidget.hpp

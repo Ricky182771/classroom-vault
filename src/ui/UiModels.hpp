@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
 
@@ -55,6 +56,54 @@ struct AttachmentRowData {
     QString status;
     QString size;
     QString localPath;
+};
+
+struct AssignmentListItemData {
+    QString courseId;
+    QString assignmentId;
+    QString title;
+    QString dueDateText;
+    QString stateText;
+    QString metadataStatus;
+    QString attachmentsStatus;
+    int attachmentsCount = 0;
+    QString lastSyncText;
+    QString descriptionPreview;
+    QString folderPath;
+    QString classroomUrl;
+};
+
+struct AttachmentUiState {
+    QString id;
+    QString title;
+    QString fileName;
+    QString type;
+    QString status;
+    QString localPath;
+    QString url;
+    QString mimeType;
+    QString sourceMimeType;
+    QString exportMimeType;
+    QString sizeText;
+    bool existsLocally = false;
+};
+
+struct AssignmentPreviewData {
+    QString courseId;
+    QString courseName;
+    QString assignmentId;
+    QString title;
+    QString description;
+    QString workType;
+    QString state;
+    QString dueDateText;
+    QString dueTimeText;
+    QString alternateLink;
+    QString localFolderPath;
+    QString metadataPath;
+    QString syncedAt;
+    QVector<AttachmentUiState> attachments;
+    QJsonObject rawJson;
 };
 
 inline QString statusLabel(const QString &status)
