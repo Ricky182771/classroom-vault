@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 
 class SyncStateManager {
 public:
@@ -18,6 +19,9 @@ public:
 
     bool hasCourse(const QString &courseId) const;
     bool hasAssignment(const QString &courseId, const QString &assignmentId) const;
+    QStringList courseIds() const;
+    QStringList assignmentIds(const QString &courseId) const;
+    QJsonObject courseState(const QString &courseId) const;
 
     QString courseFolderPath(const QString &courseId) const;
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
@@ -36,6 +40,7 @@ public:
         const Assignment &assignment,
         const QString &folderName,
         const QString &folderPath,
+        const QString &metadataPath,
         const QJsonObject &metadata);
     QJsonObject assignmentAttachments(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const;
@@ -48,6 +53,10 @@ public:
 
     QString lastSync() const;
     void setLastSync(const QDateTime &dateTime);
+
+    bool localCourseFolderExists(const QString &courseId) const;
+    bool localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const;
+    bool localMetadataExists(const QString &courseId, const QString &assignmentId) const;
 
 private:
     void ensureDefaultState();

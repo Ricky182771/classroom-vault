@@ -87,6 +87,8 @@ private slots:
     void appendError(const QString &message);
 
 private:
+    void attemptAutoLoadClassroom();
+
     void setupUi();
     void connectSignals();
 

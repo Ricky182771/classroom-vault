@@ -38,9 +38,16 @@ public:
     QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentState(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const;
+    bool localCourseFolderExists(const QString &courseId) const;
+    bool localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const;
+    bool localAssignmentMetadataExists(const QString &courseId, const QString &assignmentId) const;
+
+    bool restoreLocalStateSnapshot();
+    void publishCurrentState();
 
     void loadSampleData(const QString &samplePath = QString());
     void fetchFromClassroom();
+    void attemptAutoFetchFromClassroom();
     void setAutoDownloadAttachments(bool enabled);
     bool autoDownloadAttachments() const;
 
@@ -80,6 +87,7 @@ private slots:
 private:
     void refreshAuthConfig();
     void startFetchingCourses();
+    bool loadLocalStateIntoMemory(bool logOnFailure = true);
     QJsonObject buildMetadata(const Course &course, const Assignment &assignment) const;
 
     void logInfo(const QString &message);

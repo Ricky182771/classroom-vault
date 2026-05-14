@@ -8,11 +8,14 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - Lectura de cursos activos y tareas desde Classroom API.
 - Creacion y actualizacion de carpetas/`metadata.json`.
 - Estado persistente en `sync_state.json` para evitar duplicados.
+- Restauracion de estado local al iniciar (cursos/tareas desde `sync_state.json`).
+- Carga automatica de Classroom al abrir si existe sesion valida (sin abrir navegador automaticamente).
 - Deteccion de `materials` en tareas.
 - Nueva interfaz Qt Widgets modular en modo oscuro (inspirada en Classroom, enfocada a respaldo historico):
   - Flujo jerarquico principal: **Inicio -> Materia -> Tarea**.
+  - Grid de cursos responsive con **maximo 4 columnas**.
   - Navegacion contextual con `TopBar`, `PathBar`, `Breadcrumb`, cards de cursos y cards/lista de tareas.
-  - Preview de tarea desde `metadata.json` con vista de adjuntos.
+  - Preview de tarea desde `metadata.json` con **scroll vertical unico** (header + descripcion + evidencia + adjuntos).
 - Descarga de adjuntos (fase actual):
   - `driveFile`: metadata + descarga binaria
   - Google Docs/Sheets/Slides/Drawings: exportacion
@@ -32,6 +35,11 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - `Pendiente`: faltan tareas por respaldar.
 - `Error`: inconsistencias o errores detectados durante procesos previos.
 - `Sin sync`: curso sin sincronizacion util aun.
+
+Estados locales usados en incrementalidad:
+
+- `MissingLocal`: existia estado en `sync_state.json` pero faltan carpetas/archivos en disco.
+- `NotSynced`: elemento sin respaldo local aun.
 
 ## Preview con metadata
 
@@ -104,6 +112,15 @@ Debes habilitar ambas en tu proyecto de Google Cloud Console.
 - En ejecuciones siguientes, si el token expiro y hay `refresh_token`, se refresca automaticamente sin abrir navegador.
 - Si falla el refresco, se solicita iniciar sesion nuevamente.
 - Timeout de autenticacion: `180` segundos.
+
+### Comportamiento al abrir la app
+
+- Primero restaura estado local desde `sync_state.json` para mostrar informacion aun sin red.
+- Luego revisa sesion guardada:
+  - si hay token valido, carga Classroom automaticamente;
+  - si el access token vencio y hay refresh token, intenta refrescar y cargar;
+  - si no hay sesion, queda en `No conectado`.
+- **No abre navegador automaticamente** si no hay sesion. El navegador solo se abre al presionar **Iniciar sesion**.
 
 ### Configuracion de credenciales
 
@@ -194,6 +211,17 @@ Ruta base/
 - Si cambia, se vuelve a descargar/exportar y reemplaza el archivo local.
 - Estado de adjuntos se guarda por tarea en `sync_state.json`.
 - `metadata.json` de cada tarea se actualiza con una seccion `attachments` basada en el estado sincronizado.
+- `metadata.json` no se reescribe si su hash (`metadataHash`) no cambio.
+- Si falta carpeta/metadata/adjunto local previamente registrado, se marca como `MISS` y se repara en la siguiente sincronizacion.
+
+### Eventos de log incremental
+
+- `NEW`: tarea nueva detectada.
+- `SAME`: sin cambios de metadata.
+- `UPD`: metadata actualizada.
+- `SKIP`: adjunto sin cambios.
+- `MISS`: faltante local detectado.
+- `ERR`: error de sincronizacion/descarga/exportacion.
 
 ### Contadores en GUI
 

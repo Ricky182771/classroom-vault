@@ -589,6 +589,10 @@ void AttachmentDownloader::onFileMetadataLoaded(const QString &fileId, const QJs
         m_current.assignment.courseId,
         m_current.assignment.id,
         fileId);
+    const QString recordedLocalPath = existingRecord.value(QStringLiteral("localPath")).toString().trimmed();
+    if (!recordedLocalPath.isEmpty() && !QFileInfo::exists(recordedLocalPath)) {
+        emit attachmentLog(QStringLiteral("MISS  Adjunto faltante local: %1").arg(QFileInfo(recordedLocalPath).fileName()));
+    }
 
     if (m_driveClient->isGoogleWorkspaceMimeType(sourceMimeType)) {
         if (sourceMimeType == QStringLiteral("application/vnd.google-apps.form")) {

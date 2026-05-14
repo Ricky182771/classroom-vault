@@ -18,10 +18,20 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     : QWidget(parent)
 {
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(12, 12, 12, 12);
-    root->setSpacing(12);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    auto *headerCard = new QFrame(this);
+    m_scrollArea = new QScrollArea(this);
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    root->addWidget(m_scrollArea, 1);
+
+    m_scrollContent = new QWidget(m_scrollArea);
+    auto *contentLayout = new QVBoxLayout(m_scrollContent);
+    contentLayout->setContentsMargins(12, 12, 12, 12);
+    contentLayout->setSpacing(12);
+
+    auto *headerCard = new QFrame(m_scrollContent);
     headerCard->setObjectName(QStringLiteral("Section"));
 
     auto *headerLayout = new QVBoxLayout(headerCard);
@@ -72,9 +82,9 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
 
     headerLayout->addLayout(actions);
 
-    root->addWidget(headerCard);
+    contentLayout->addWidget(headerCard);
 
-    auto *descriptionCard = new QFrame(this);
+    auto *descriptionCard = new QFrame(m_scrollContent);
     descriptionCard->setObjectName(QStringLiteral("Section"));
     auto *descriptionLayout = new QVBoxLayout(descriptionCard);
     descriptionLayout->setContentsMargins(12, 12, 12, 12);
@@ -97,24 +107,29 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     m_evidenceLabel->setWordWrap(true);
     descriptionLayout->addWidget(m_evidenceLabel);
 
-    root->addWidget(descriptionCard);
+    contentLayout->addWidget(descriptionCard);
 
-    auto *attachmentsTitle = new QLabel(QStringLiteral("Adjuntos"), this);
+    auto *attachmentsSection = new QFrame(m_scrollContent);
+    attachmentsSection->setObjectName(QStringLiteral("Section"));
+    auto *attachmentsSectionLayout = new QVBoxLayout(attachmentsSection);
+    attachmentsSectionLayout->setContentsMargins(12, 12, 12, 12);
+    attachmentsSectionLayout->setSpacing(8);
+
+    auto *attachmentsTitle = new QLabel(QStringLiteral("Adjuntos"), attachmentsSection);
     attachmentsTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;background:transparent;border:none;"));
-    root->addWidget(attachmentsTitle);
+    attachmentsSectionLayout->addWidget(attachmentsTitle);
 
-    m_attachmentsScroll = new QScrollArea(this);
-    m_attachmentsScroll->setWidgetResizable(true);
-    m_attachmentsScroll->setFrameShape(QFrame::NoFrame);
-
-    m_attachmentsContainer = new QWidget(m_attachmentsScroll);
+    m_attachmentsContainer = new QWidget(attachmentsSection);
     m_attachmentsLayout = new QVBoxLayout(m_attachmentsContainer);
     m_attachmentsLayout->setContentsMargins(0, 0, 0, 0);
     m_attachmentsLayout->setSpacing(8);
     m_attachmentsLayout->addStretch(1);
+    attachmentsSectionLayout->addWidget(m_attachmentsContainer);
 
-    m_attachmentsScroll->setWidget(m_attachmentsContainer);
-    root->addWidget(m_attachmentsScroll, 1);
+    contentLayout->addWidget(attachmentsSection);
+    contentLayout->addStretch(1);
+
+    m_scrollArea->setWidget(m_scrollContent);
 
     connect(m_backButton, &QPushButton::clicked, this, &AssignmentDetailWidget::backRequested);
     connect(m_openClassroomButton, &QPushButton::clicked, this, [this]() {

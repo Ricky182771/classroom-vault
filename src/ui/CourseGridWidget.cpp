@@ -52,8 +52,10 @@ void CourseGridWidget::setSearchText(const QString &text)
 
 int CourseGridWidget::columnsForWidth(int width) const
 {
-    const int available = qMax(320, width);
-    return qMax(1, available / 300);
+    constexpr int preferredCardWidth = 340;
+    const int available = qMax(preferredCardWidth, width);
+    const int computed = qMax(1, available / preferredCardWidth);
+    return qMin(4, computed);
 }
 
 void CourseGridWidget::scheduleRefresh(bool force)

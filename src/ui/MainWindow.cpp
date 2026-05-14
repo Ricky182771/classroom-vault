@@ -30,6 +30,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -78,11 +79,26 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_syncManager->setAutoDownloadAttachments(false);
 
+    m_runtimeStatus = QStringLiteral("Cargando estado local...");
+    refreshStatusUi();
+
     appendLog(QStringLiteral("INFO  Interfaz lista. Flujo activo: Inicio -> Materia -> Tarea."));
     appendLog(QStringLiteral("INFO  Config local: %1").arg(m_syncManager->configManager().configDir()));
+    appendLog(QStringLiteral("INFO  Cargando estado local..."));
+
+    const bool localLoaded = m_syncManager->restoreLocalStateSnapshot();
+    m_syncManager->publishCurrentState();
+    appendLog(QStringLiteral("INFO  Cursos locales restaurados: %1").arg(m_currentCourses.size()));
+    if (!localLoaded) {
+        appendLog(QStringLiteral("INFO  No se encontro estado local previo o no pudo leerse."));
+    }
 
     refreshAllViews();
     showHome();
+
+    QTimer::singleShot(0, this, [this]() {
+        attemptAutoLoadClassroom();
+    });
 }
 
 void MainWindow::setupUi()
@@ -238,6 +254,29 @@ QString MainWindow::formatIsoDateTime(const QString &isoText) const
     return dt.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
 }
 
+void MainWindow::attemptAutoLoadClassroom()
+{
+    appendLog(QStringLiteral("INFO  Revisando sesion guardada..."));
+
+    GoogleAuth *auth = m_syncManager->googleAuth();
+    if (auth->hasValidAccessToken()) {
+        m_runtimeStatus = QStringLiteral("Cargando Classroom...");
+        refreshStatusUi();
+        m_syncManager->attemptAutoFetchFromClassroom();
+        return;
+    }
+
+    if (!auth->refreshToken().trimmed().isEmpty()) {
+        m_runtimeStatus = QStringLiteral("Conectando...");
+        refreshStatusUi();
+        m_syncManager->attemptAutoFetchFromClassroom();
+        return;
+    }
+
+    m_runtimeStatus = QStringLiteral("No conectado");
+    refreshStatusUi();
+}
+
 void MainWindow::showHome()
 {
     m_currentPage = ViewPage::Home;
@@ -312,6 +351,11 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
         ui.semester = m_syncManager->semesterForCourse(course.id);
         ui.classroomUrl = course.alternateLink;
         ui.folderPath = m_syncManager->courseFolderPath(course.id);
+        const bool courseFolderMissing =
+            !ui.folderPath.trimmed().isEmpty() && !m_syncManager->localCourseFolderExists(course.id);
+        if (courseFolderMissing) {
+            ++ui.errors;
+        }
 
         const QList<Assignment> list = assignmentsByCourse.value(course.id);
         ui.totalTasks = list.size();
@@ -320,12 +364,29 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
         for (const Assignment &assignment : list) {
             const QJsonObject state = m_syncManager->assignmentState(course.id, assignment.id);
             const QString folder = state.value(QStringLiteral("folderPath")).toString().trimmed();
-            if (!folder.isEmpty() && QFileInfo::exists(folder)) {
+            const bool assignmentFolderExists = m_syncManager->localAssignmentFolderExists(course.id, assignment.id);
+            const bool metadataExists = m_syncManager->localAssignmentMetadataExists(course.id, assignment.id);
+
+            if (assignmentFolderExists && metadataExists) {
                 ++ui.backedUpTasks;
+            }
+            if (!folder.isEmpty() && !assignmentFolderExists) {
+                ++ui.errors;
             }
 
             const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignment.id);
-            ui.attachments += attachmentObjectCount(attachments);
+            for (auto it = attachments.begin(); it != attachments.end(); ++it) {
+                if (!it.value().isObject()) {
+                    continue;
+                }
+                ++ui.attachments;
+
+                const QJsonObject attachmentState = it.value().toObject();
+                const QString localPath = attachmentState.value(QStringLiteral("localPath")).toString().trimmed();
+                if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
+                    ++ui.errors;
+                }
+            }
 
             const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
             const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
@@ -335,9 +396,6 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
                 newest = dt;
             }
 
-            if (!folder.isEmpty() && !QFileInfo::exists(folder)) {
-                ++ui.errors;
-            }
         }
 
         ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
@@ -371,11 +429,38 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
         item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
 
         const QString metadataPath = m_syncManager->assignmentMetadataPath(courseId, assignment.id);
-        item.metadataStatus = QFileInfo::exists(metadataPath) ? QStringLiteral("Metadata OK") : QStringLiteral("Pendiente");
+        const bool folderExists = m_syncManager->localAssignmentFolderExists(courseId, assignment.id);
+        const bool metadataExists = m_syncManager->localAssignmentMetadataExists(courseId, assignment.id);
+        if (metadataExists) {
+            item.metadataStatus = QStringLiteral("Metadata OK");
+        } else if (folderExists) {
+            item.metadataStatus = QStringLiteral("Metadata faltante");
+        } else if (!item.folderPath.isEmpty()) {
+            item.metadataStatus = QStringLiteral("Faltante local");
+        } else {
+            item.metadataStatus = QStringLiteral("Pendiente");
+        }
 
         const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(courseId, assignment.id);
-        item.attachmentsCount = attachmentObjectCount(attachments);
-        item.attachmentsStatus = item.attachmentsCount > 0 ? QStringLiteral("Adjuntos guardados") : QStringLiteral("Sin adjuntos");
+        int missingAttachments = 0;
+        item.attachmentsCount = 0;
+        for (auto it = attachments.begin(); it != attachments.end(); ++it) {
+            if (!it.value().isObject()) {
+                continue;
+            }
+            ++item.attachmentsCount;
+            const QString localPath = it.value().toObject().value(QStringLiteral("localPath")).toString().trimmed();
+            if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
+                ++missingAttachments;
+            }
+        }
+        if (item.attachmentsCount == 0) {
+            item.attachmentsStatus = QStringLiteral("Sin adjuntos");
+        } else if (missingAttachments > 0) {
+            item.attachmentsStatus = QStringLiteral("Faltantes: %1").arg(missingAttachments);
+        } else {
+            item.attachmentsStatus = QStringLiteral("Adjuntos guardados");
+        }
 
         const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
         const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
@@ -644,6 +729,8 @@ void MainWindow::onLoadSampleData()
 
 void MainWindow::onLoadClassroom()
 {
+    m_runtimeStatus = QStringLiteral("Cargando Classroom...");
+    refreshStatusUi();
     m_syncManager->fetchFromClassroom();
 }
 
@@ -724,13 +811,25 @@ void MainWindow::onAuthStatusChanged(const QString &status)
 
 void MainWindow::onAuthFailed(const QString &errorMessage)
 {
-    Q_UNUSED(errorMessage)
+    if (!m_currentCourses.isEmpty()) {
+        m_runtimeStatus = QStringLiteral("Modo local: no se pudo cargar Classroom");
+    } else {
+        m_runtimeStatus = QStringLiteral("No conectado");
+    }
+    if (!errorMessage.trimmed().isEmpty()) {
+        appendLog(QStringLiteral("INFO  %1").arg(errorMessage.trimmed()));
+    }
+    refreshStatusUi();
     refreshAuthUi();
 }
 
 void MainWindow::onCoursesChanged(const QList<Course> &courses)
 {
     m_currentCourses = courses;
+    if (m_runtimeStatus == QStringLiteral("Cargando Classroom...") || m_runtimeStatus == QStringLiteral("Conectando...")) {
+        m_runtimeStatus = QStringLiteral("Listo");
+    }
+    refreshStatusUi();
     refreshAllViews();
 }
 
@@ -979,6 +1078,12 @@ void MainWindow::appendError(const QString &message)
         normalized = QStringLiteral("ERR   ") + normalized;
     }
     appendLog(normalized);
+
+    if ((m_runtimeStatus == QStringLiteral("Cargando Classroom...") || m_runtimeStatus == QStringLiteral("Conectando..."))
+        && !m_currentCourses.isEmpty()) {
+        m_runtimeStatus = QStringLiteral("Modo local: no se pudo cargar Classroom");
+        refreshStatusUi();
+    }
 }
 
 void MainWindow::refreshAuthUi()

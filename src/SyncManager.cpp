@@ -4,7 +4,10 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
 
 SyncManager::SyncManager(QObject *parent)
     : QObject(parent)
@@ -166,6 +169,147 @@ QJsonObject SyncManager::assignmentAttachmentsState(const QString &courseId, con
     return m_syncStateManager.assignmentAttachmentsState(courseId, assignmentId);
 }
 
+bool SyncManager::localCourseFolderExists(const QString &courseId) const
+{
+    return m_syncStateManager.localCourseFolderExists(courseId);
+}
+
+bool SyncManager::localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const
+{
+    return m_syncStateManager.localAssignmentFolderExists(courseId, assignmentId);
+}
+
+bool SyncManager::localAssignmentMetadataExists(const QString &courseId, const QString &assignmentId) const
+{
+    return m_syncStateManager.localMetadataExists(courseId, assignmentId);
+}
+
+bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
+{
+    if (!m_syncStateManager.load()) {
+        if (logOnFailure) {
+            logErr(QStringLiteral("No se pudo leer sync_state.json"));
+        }
+        return false;
+    }
+
+    QList<Course> localCourses;
+    QHash<QString, QList<Assignment>> localAssignmentsByCourse;
+
+    const QStringList courseIds = m_syncStateManager.courseIds();
+    for (const QString &courseId : courseIds) {
+        const QJsonObject courseState = m_syncStateManager.courseState(courseId);
+        if (courseState.isEmpty()) {
+            continue;
+        }
+
+        Course course;
+        course.id = courseId;
+        course.name = courseState.value(QStringLiteral("name")).toString().trimmed();
+        if (course.name.isEmpty()) {
+            course.name = courseId;
+        }
+        course.section = courseState.value(QStringLiteral("section")).toString().trimmed();
+        course.descriptionHeading = courseState.value(QStringLiteral("descriptionHeading")).toString().trimmed();
+        course.alternateLink = courseState.value(QStringLiteral("alternateLink")).toString().trimmed();
+        localCourses.append(course);
+
+        const QString semester = courseState.value(QStringLiteral("semester")).toString().trimmed();
+        if (!semester.isEmpty() && !m_semesterByCourse.contains(courseId)) {
+            m_semesterByCourse.insert(courseId, semester);
+        }
+
+        QList<Assignment> assignments;
+        const QStringList assignmentIds = m_syncStateManager.assignmentIds(courseId);
+        assignments.reserve(assignmentIds.size());
+
+        for (const QString &assignmentId : assignmentIds) {
+            const QJsonObject assignmentState = m_syncStateManager.assignmentState(courseId, assignmentId);
+            if (assignmentState.isEmpty()) {
+                continue;
+            }
+
+            Assignment assignment;
+            assignment.id = assignmentId;
+            assignment.courseId = courseId;
+            assignment.title = assignmentState.value(QStringLiteral("title")).toString().trimmed();
+            if (assignment.title.isEmpty()) {
+                assignment.title = assignmentState.value(QStringLiteral("folderName")).toString().trimmed();
+            }
+
+            const QString metadataPath = m_syncStateManager.assignmentMetadataPath(courseId, assignmentId).trimmed();
+            QFile metadataFile(metadataPath);
+            if (metadataFile.exists() && metadataFile.open(QIODevice::ReadOnly)) {
+                const QJsonDocument metadataDoc = QJsonDocument::fromJson(metadataFile.readAll());
+                metadataFile.close();
+                if (metadataDoc.isObject()) {
+                    const QJsonObject metadata = metadataDoc.object();
+                    assignment.description = metadata.value(QStringLiteral("description")).toString();
+                    assignment.workType = metadata.value(QStringLiteral("workType")).toString();
+                    assignment.state = metadata.value(QStringLiteral("state")).toString();
+                    assignment.alternateLink = metadata.value(QStringLiteral("alternateLink")).toString();
+
+                    const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
+                    if (!dueDateObj.isEmpty()) {
+                        assignment.dueDate = QDate(
+                            dueDateObj.value(QStringLiteral("year")).toInt(),
+                            dueDateObj.value(QStringLiteral("month")).toInt(),
+                            dueDateObj.value(QStringLiteral("day")).toInt());
+                    }
+
+                    const QJsonObject dueTimeObj = metadata.value(QStringLiteral("dueTime")).toObject();
+                    if (!dueTimeObj.isEmpty()) {
+                        assignment.dueTime = QTime(
+                            dueTimeObj.value(QStringLiteral("hours")).toInt(),
+                            dueTimeObj.value(QStringLiteral("minutes")).toInt(),
+                            dueTimeObj.value(QStringLiteral("seconds")).toInt());
+                    }
+
+                    const QJsonArray materialsArray = metadata.value(QStringLiteral("materials")).toArray();
+                    assignment.materials.reserve(materialsArray.size());
+                    for (const QJsonValue &materialValue : materialsArray) {
+                        if (!materialValue.isObject()) {
+                            continue;
+                        }
+
+                        const QJsonObject materialObj = materialValue.toObject();
+                        AssignmentMaterial material;
+                        material.type = materialObj.value(QStringLiteral("type")).toString();
+                        material.title = materialObj.value(QStringLiteral("title")).toString();
+                        material.alternateLink = materialObj.value(QStringLiteral("alternateLink")).toString();
+                        material.driveFileId = materialObj.value(QStringLiteral("driveFileId")).toString();
+                        material.url = materialObj.value(QStringLiteral("url")).toString();
+                        material.rawJson = materialObj;
+                        assignment.materials.append(material);
+                    }
+
+                    assignment.rawJson = metadata;
+                }
+            }
+
+            assignments.append(assignment);
+        }
+
+        localAssignmentsByCourse.insert(courseId, assignments);
+    }
+
+    m_courses = localCourses;
+    m_assignmentsByCourse = localAssignmentsByCourse;
+    return true;
+}
+
+bool SyncManager::restoreLocalStateSnapshot()
+{
+    return loadLocalStateIntoMemory(true);
+}
+
+void SyncManager::publishCurrentState()
+{
+    emit coursesChanged(m_courses);
+    emit assignmentsChanged(allAssignments());
+    emitCounters();
+}
+
 void SyncManager::refreshAuthConfig()
 {
     m_googleAuth.setClientConfig(
@@ -216,6 +360,28 @@ void SyncManager::fetchFromClassroom()
     emitCounters();
 }
 
+void SyncManager::attemptAutoFetchFromClassroom()
+{
+    refreshAuthConfig();
+    m_classroomClient.setUseSampleData(false);
+
+    if (m_googleAuth.hasUsableAccessToken()) {
+        m_classroomClient.setAccessToken(m_googleAuth.accessToken());
+        logInfo(QStringLiteral("Token valido. Cargando Classroom..."));
+        startFetchingCourses();
+        return;
+    }
+
+    if (!m_googleAuth.refreshToken().trimmed().isEmpty()) {
+        logInfo(QStringLiteral("Token expirado. Intentando refrescar sesion..."));
+        m_waitingForTokenRefresh = true;
+        m_googleAuth.refreshAccessToken();
+        return;
+    }
+
+    logInfo(QStringLiteral("No hay sesion guardada. Inicia sesion para conectar Classroom."));
+}
+
 void SyncManager::setAutoDownloadAttachments(bool enabled)
 {
     m_autoDownloadAttachments = enabled;
@@ -228,8 +394,6 @@ bool SyncManager::autoDownloadAttachments() const
 
 void SyncManager::startFetchingCourses()
 {
-    m_courses.clear();
-    m_assignmentsByCourse.clear();
     m_pendingCourseWorkRequests = 0;
 
     m_newCount = 0;
@@ -455,6 +619,12 @@ void SyncManager::syncFolders()
             QString assignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id);
 
             if (assignmentPath.trimmed().isEmpty() || !QFileInfo::exists(assignmentPath)) {
+                if (knownAssignment && !assignmentPath.trimmed().isEmpty()) {
+                    emit logMessage(
+                        QStringLiteral("MISS  Carpeta faltante local: %1 / %2")
+                            .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
+                }
+
                 const QString desiredPath = QDir(coursePath).filePath(FolderOrganizer::buildAssignmentFolderName(assignment));
                 const QString resolvedPath = m_folderOrganizer.resolveFolderConflict(desiredPath, assignment.id);
                 const bool existedBefore = QFileInfo::exists(resolvedPath);
@@ -473,6 +643,12 @@ void SyncManager::syncFolders()
             }
 
             const QString metadataPath = QDir(assignmentPath).filePath(QStringLiteral("metadata.json"));
+            if (knownAssignment && !QFileInfo::exists(metadataPath)) {
+                emit logMessage(
+                    QStringLiteral("MISS  metadata faltante: %1 / %2")
+                        .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
+            }
+
             const QJsonObject metadataNoSyncTime = buildMetadata(course, assignment);
             const QString newHash = Utils::sha256Json(metadataNoSyncTime);
             const QString oldHash = m_syncStateManager.assignmentMetadataHash(course.id, assignment.id);
@@ -512,6 +688,7 @@ void SyncManager::syncFolders()
                 assignment,
                 QFileInfo(assignmentPath).fileName(),
                 assignmentPath,
+                metadataPath,
                 metadataNoSyncTime);
         }
     }

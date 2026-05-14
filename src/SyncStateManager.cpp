@@ -160,6 +160,21 @@ bool SyncStateManager::hasAssignment(const QString &courseId, const QString &ass
     return assignments.contains(assignmentId);
 }
 
+QStringList SyncStateManager::courseIds() const
+{
+    return m_root.value(QStringLiteral("courses")).toObject().keys();
+}
+
+QStringList SyncStateManager::assignmentIds(const QString &courseId) const
+{
+    return courseObject(courseId).value(QStringLiteral("assignments")).toObject().keys();
+}
+
+QJsonObject SyncStateManager::courseState(const QString &courseId) const
+{
+    return courseObject(courseId);
+}
+
 QString SyncStateManager::courseFolderPath(const QString &courseId) const
 {
     return courseObject(courseId).value(QStringLiteral("folderPath")).toString();
@@ -172,6 +187,11 @@ QString SyncStateManager::assignmentFolderPath(const QString &courseId, const QS
 
 QString SyncStateManager::assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const
 {
+    const QString storedPath = assignmentObject(courseId, assignmentId).value(QStringLiteral("metadataPath")).toString().trimmed();
+    if (!storedPath.isEmpty()) {
+        return storedPath;
+    }
+
     const QString folderPath = assignmentFolderPath(courseId, assignmentId).trimmed();
     if (folderPath.isEmpty()) {
         return QString();
@@ -208,9 +228,11 @@ void SyncStateManager::updateCourse(const Course &course, const QString &semeste
     QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
     QJsonObject courseEntry = courses.value(course.id).toObject();
 
+    const QString now = Utils::nowIsoStringUtc();
     courseEntry.insert(QStringLiteral("name"), course.name);
     courseEntry.insert(QStringLiteral("semester"), semester);
     courseEntry.insert(QStringLiteral("folderPath"), folderPath);
+    courseEntry.insert(QStringLiteral("lastSeen"), now);
 
     if (!courseEntry.contains(QStringLiteral("assignments")) || !courseEntry.value(QStringLiteral("assignments")).isObject()) {
         courseEntry.insert(QStringLiteral("assignments"), QJsonObject());
@@ -225,6 +247,7 @@ void SyncStateManager::updateAssignment(
     const Assignment &assignment,
     const QString &folderName,
     const QString &folderPath,
+    const QString &metadataPath,
     const QJsonObject &metadata)
 {
     QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
@@ -244,6 +267,7 @@ void SyncStateManager::updateAssignment(
     assignmentEntry.insert(QStringLiteral("title"), Utils::effectiveAssignmentTitle(assignment));
     assignmentEntry.insert(QStringLiteral("folderName"), folderName);
     assignmentEntry.insert(QStringLiteral("folderPath"), folderPath);
+    assignmentEntry.insert(QStringLiteral("metadataPath"), metadataPath);
     assignmentEntry.insert(QStringLiteral("metadataHash"), newHash);
     if (oldHash != newHash || assignmentEntry.value(QStringLiteral("lastUpdated")).toString().isEmpty()) {
         assignmentEntry.insert(QStringLiteral("lastUpdated"), now);
@@ -319,4 +343,22 @@ QString SyncStateManager::lastSync() const
 void SyncStateManager::setLastSync(const QDateTime &dateTime)
 {
     m_root.insert(QStringLiteral("lastSync"), dateTime.toString(Qt::ISODate));
+}
+
+bool SyncStateManager::localCourseFolderExists(const QString &courseId) const
+{
+    const QString path = courseFolderPath(courseId).trimmed();
+    return !path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isDir();
+}
+
+bool SyncStateManager::localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const
+{
+    const QString path = assignmentFolderPath(courseId, assignmentId).trimmed();
+    return !path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isDir();
+}
+
+bool SyncStateManager::localMetadataExists(const QString &courseId, const QString &assignmentId) const
+{
+    const QString path = assignmentMetadataPath(courseId, assignmentId).trimmed();
+    return !path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isFile();
 }

@@ -46,7 +46,8 @@ private:
     QLabel *m_descriptionLabel = nullptr;
     QLabel *m_evidenceLabel = nullptr;
 
-    QScrollArea *m_attachmentsScroll = nullptr;
+    QScrollArea *m_scrollArea = nullptr;
+    QWidget *m_scrollContent = nullptr;
     QWidget *m_attachmentsContainer = nullptr;
     QVBoxLayout *m_attachmentsLayout = nullptr;
 };
