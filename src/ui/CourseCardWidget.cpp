@@ -73,7 +73,6 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
     m_openTasksButton = new QPushButton(QStringLiteral("Ver tareas"), content);
     m_openFolderButton = new QPushButton(QStringLiteral("Abrir carpeta"), content);
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar"), content);
-    m_attachmentsButton = new QPushButton(QStringLiteral("Adjuntos"), content);
     m_classroomButton = new QPushButton(QStringLiteral("Classroom"), content);
 
     m_syncButton->setProperty("variant", QStringLiteral("primary"));
@@ -81,8 +80,7 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
     actions->addWidget(m_openTasksButton, 0, 0);
     actions->addWidget(m_openFolderButton, 0, 1);
     actions->addWidget(m_syncButton, 1, 0);
-    actions->addWidget(m_attachmentsButton, 1, 1);
-    actions->addWidget(m_classroomButton, 2, 0, 1, 2);
+    actions->addWidget(m_classroomButton, 1, 1);
 
     contentLayout->addLayout(actions);
 
@@ -96,9 +94,6 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
     });
     connect(m_syncButton, &QPushButton::clicked, this, [this]() {
         emit syncCourseRequested(m_course.id);
-    });
-    connect(m_attachmentsButton, &QPushButton::clicked, this, [this]() {
-        emit downloadAttachmentsRequested(m_course.id);
     });
     connect(m_classroomButton, &QPushButton::clicked, this, [this]() {
         emit openClassroomRequested(m_course.id);

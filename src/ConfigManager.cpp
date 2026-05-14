@@ -67,6 +67,8 @@ void ConfigManager::loadDefaults()
     m_basePath.clear();
     m_courseSemesters.clear();
     m_legacyCourseSemestersByName.clear();
+    m_globalSemesterFilter = QStringLiteral("Todos los semestres");
+    m_defaultSemester.clear();
 
     QJsonArray defaultScopes;
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
@@ -135,6 +137,11 @@ bool ConfigManager::load()
 
     const QJsonObject root = doc.object();
     m_basePath = root.value(QStringLiteral("basePath")).toString();
+    m_globalSemesterFilter = root.value(QStringLiteral("globalSemesterFilter")).toString().trimmed();
+    if (m_globalSemesterFilter.isEmpty()) {
+        m_globalSemesterFilter = QStringLiteral("Todos los semestres");
+    }
+    m_defaultSemester = root.value(QStringLiteral("defaultSemester")).toString().trimmed();
 
     m_courseSemesters.clear();
     m_legacyCourseSemestersByName.clear();
@@ -190,6 +197,8 @@ bool ConfigManager::save() const
     QJsonObject root;
     root.insert(QStringLiteral("basePath"), m_basePath);
     root.insert(QStringLiteral("courseSemesters"), courseSemesters);
+    root.insert(QStringLiteral("globalSemesterFilter"), m_globalSemesterFilter);
+    root.insert(QStringLiteral("defaultSemester"), m_defaultSemester);
     if (!legacyCourseSemestersByName.isEmpty()) {
         root.insert(QStringLiteral("courseSemestersByName"), legacyCourseSemestersByName);
     }
@@ -244,6 +253,27 @@ void ConfigManager::setSemesterMapping(const QHash<QString, QString> &mapping)
 QString ConfigManager::legacySemesterForCourseName(const QString &courseName) const
 {
     return m_legacyCourseSemestersByName.value(courseName).trimmed();
+}
+
+QString ConfigManager::globalSemesterFilter() const
+{
+    return m_globalSemesterFilter.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : m_globalSemesterFilter.trimmed();
+}
+
+void ConfigManager::setGlobalSemesterFilter(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    m_globalSemesterFilter = clean.isEmpty() ? QStringLiteral("Todos los semestres") : clean;
+}
+
+QString ConfigManager::defaultSemester() const
+{
+    return m_defaultSemester.trimmed();
+}
+
+void ConfigManager::setDefaultSemester(const QString &semester)
+{
+    m_defaultSemester = semester.trimmed();
 }
 
 void ConfigManager::clearLegacySemesterForCourseName(const QString &courseName)

@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QComboBox>
 
 TopBarWidget::TopBarWidget(QWidget *parent)
     : QFrame(parent)
@@ -28,6 +29,18 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     m_searchEdit->setPlaceholderText(QStringLiteral("Buscar materias, tareas o archivos…"));
     m_searchEdit->setMinimumWidth(260);
     layout->addWidget(m_searchEdit, 1);
+
+    m_semesterCombo = new QComboBox(this);
+    m_semesterCombo->setMinimumWidth(170);
+    m_semesterCombo->addItem(QStringLiteral("Todos los semestres"));
+    m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 1"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 2"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 3"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 4"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 5"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 6"));
+    layout->addWidget(m_semesterCombo);
 
     auto *stateTag = new QFrame(this);
     stateTag->setObjectName(QStringLiteral("Section"));
@@ -71,6 +84,9 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
         emit searchTextChanged(text.trimmed());
     });
+    connect(m_semesterCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        emit globalSemesterFilterChanged(text.trimmed());
+    });
 }
 
 void TopBarWidget::setPageTitle(const QString &title)
@@ -92,4 +108,24 @@ void TopBarWidget::setSearchPlaceholder(const QString &placeholder)
 {
     m_searchEdit->setPlaceholderText(
         placeholder.trimmed().isEmpty() ? QStringLiteral("Buscar materias, tareas o archivos…") : placeholder.trimmed());
+}
+
+void TopBarWidget::setGlobalSemesterFilter(const QString &semester)
+{
+    const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : semester.trimmed();
+    const int idx = m_semesterCombo->findText(clean);
+    if (idx < 0) {
+        return;
+    }
+
+    if (m_semesterCombo->currentIndex() == idx) {
+        return;
+    }
+
+    m_semesterCombo->setCurrentIndex(idx);
+}
+
+QString TopBarWidget::globalSemesterFilter() const
+{
+    return m_semesterCombo->currentText().trimmed();
 }

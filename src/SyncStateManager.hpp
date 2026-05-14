@@ -28,6 +28,7 @@ public:
     QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
     QString assignmentMetadataHash(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentState(const QString &courseId, const QString &assignmentId) const;
+    bool isAssignmentArchivedDeleted(const QString &courseId, const QString &assignmentId) const;
 
     bool isAssignmentMetadataChanged(
         const QString &courseId,
@@ -50,6 +51,15 @@ public:
         const QString &assignmentId,
         const QString &attachmentKey,
         const QJsonObject &attachmentData);
+    void markAssignmentArchivedDeleted(
+        const QString &courseId,
+        const QString &assignmentId,
+        const QString &reason);
+    void clearAssignmentArchivedDeleted(const QString &courseId, const QString &assignmentId);
+    void updateAssignmentChecksumState(
+        const QString &courseId,
+        const QString &assignmentId,
+        const QJsonObject &checksumState);
 
     QString lastSync() const;
     void setLastSync(const QDateTime &dateTime);

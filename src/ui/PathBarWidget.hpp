@@ -18,7 +18,6 @@ signals:
     void changeBasePathRequested();
     void openBasePathRequested();
     void syncAllRequested();
-    void downloadAttachmentsRequested();
 
 private:
     QLabel *m_pathValue = nullptr;
@@ -26,5 +25,4 @@ private:
     QPushButton *m_changePathButton = nullptr;
     QPushButton *m_openBasePathButton = nullptr;
     QPushButton *m_syncAllButton = nullptr;
-    QPushButton *m_downloadAttachmentsButton = nullptr;
 };

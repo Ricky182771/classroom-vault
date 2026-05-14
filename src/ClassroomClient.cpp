@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 
 namespace {
 
@@ -127,7 +128,9 @@ void ClassroomClient::fetchCourseWorkFromSample(const QString &courseId)
         const QJsonObject root = doc.object();
         const QJsonObject courseworkByCourse = root.value(QStringLiteral("courseWork")).toObject();
         const QJsonArray assignments = courseworkByCourse.value(courseId).toArray();
-        emit courseWorkFetched(courseId, parseCourseWork(courseId, assignments));
+        const QList<Assignment> parsed = parseCourseWork(courseId, assignments);
+        emit courseWorkFetched(courseId, parsed);
+        emit courseWorkSnapshotFetched(courseId, parsed, true);
     });
 }
 
@@ -155,8 +158,20 @@ void ClassroomClient::fetchCourseWorkFromApi(const QString &courseId)
         return;
     }
 
+    m_courseWorkAccumulator.remove(courseId);
+    m_courseWorkPageCount.insert(courseId, 0);
+    fetchCourseWorkPageFromApi(courseId, QString());
+}
+
+void ClassroomClient::fetchCourseWorkPageFromApi(const QString &courseId, const QString &pageToken)
+{
     const QString encodedCourseId = QString::fromUtf8(QUrl::toPercentEncoding(courseId));
-    const QUrl url(QStringLiteral("https://classroom.googleapis.com/v1/courses/%1/courseWork").arg(encodedCourseId));
+    QUrl url(QStringLiteral("https://classroom.googleapis.com/v1/courses/%1/courseWork").arg(encodedCourseId));
+    if (!pageToken.trimmed().isEmpty()) {
+        QUrlQuery query(url);
+        query.addQueryItem(QStringLiteral("pageToken"), pageToken.trimmed());
+        url.setQuery(query);
+    }
 
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
@@ -164,6 +179,7 @@ void ClassroomClient::fetchCourseWorkFromApi(const QString &courseId)
     QNetworkReply *reply = m_networkManager.get(request);
     reply->setProperty("requestType", QStringLiteral("courseWork"));
     reply->setProperty("courseId", courseId);
+    reply->setProperty("pageToken", pageToken);
     connect(reply, &QNetworkReply::finished, this, &ClassroomClient::onReplyFinished);
 }
 
@@ -200,6 +216,14 @@ void ClassroomClient::onReplyFinished()
 
         emit requestFailed(context, httpStatus, message);
         emit errorOccurred(context, message);
+
+        if (requestType == QStringLiteral("courseWork")) {
+            const QList<Assignment> partial = m_courseWorkAccumulator.value(courseId);
+            emit courseWorkSnapshotFetched(courseId, partial, false);
+            m_courseWorkAccumulator.remove(courseId);
+            m_courseWorkPageCount.remove(courseId);
+        }
+
         reply->deleteLater();
         return;
     }
@@ -217,7 +241,28 @@ void ClassroomClient::onReplyFinished()
     if (requestType == QStringLiteral("courses")) {
         emit coursesFetched(parseCourses(root.value(QStringLiteral("courses")).toArray()));
     } else if (requestType == QStringLiteral("courseWork")) {
-        emit courseWorkFetched(courseId, parseCourseWork(courseId, root.value(QStringLiteral("courseWork")).toArray()));
+        const QList<Assignment> pageAssignments = parseCourseWork(courseId, root.value(QStringLiteral("courseWork")).toArray());
+
+        QList<Assignment> accumulated = m_courseWorkAccumulator.value(courseId);
+        accumulated.append(pageAssignments);
+        m_courseWorkAccumulator.insert(courseId, accumulated);
+
+        const int pageNo = m_courseWorkPageCount.value(courseId, 0) + 1;
+        m_courseWorkPageCount.insert(courseId, pageNo);
+        emit logMessage(QStringLiteral("API   Página %1 recibida (%2 tareas): %3").arg(pageNo).arg(pageAssignments.size()).arg(courseId));
+
+        const QString nextPageToken = root.value(QStringLiteral("nextPageToken")).toString().trimmed();
+        if (!nextPageToken.isEmpty()) {
+            reply->deleteLater();
+            fetchCourseWorkPageFromApi(courseId, nextPageToken);
+            return;
+        }
+
+        const QList<Assignment> fullAssignments = m_courseWorkAccumulator.value(courseId);
+        emit courseWorkFetched(courseId, fullAssignments);
+        emit courseWorkSnapshotFetched(courseId, fullAssignments, true);
+        m_courseWorkAccumulator.remove(courseId);
+        m_courseWorkPageCount.remove(courseId);
     }
 
     reply->deleteLater();

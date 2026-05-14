@@ -11,6 +11,7 @@ class QLineEdit;
 class QVBoxLayout;
 class QScrollArea;
 class AssignmentListItemWidget;
+class QComboBox;
 
 class CourseDetailWidget : public QWidget {
     Q_OBJECT
@@ -27,12 +28,11 @@ signals:
     void assignmentSelected(const QString &courseId, const QString &assignmentId);
     void openAssignmentFolderRequested(const QString &courseId, const QString &assignmentId);
     void openAssignmentClassroomRequested(const QString &courseId, const QString &assignmentId);
-    void downloadAssignmentAttachmentsRequested(const QString &courseId, const QString &assignmentId);
 
     void syncCourseRequested(const QString &courseId);
-    void downloadCourseAttachmentsRequested(const QString &courseId);
     void openCourseFolderRequested(const QString &courseId);
     void openCourseClassroomRequested(const QString &courseId);
+    void semesterChanged(const QString &courseId, const QString &semester);
 
 private:
     void refreshAssignments();
@@ -46,10 +46,10 @@ private:
     QLabel *m_statusLabel = nullptr;
     QLabel *m_summaryLabel = nullptr;
     QLabel *m_pathLabel = nullptr;
+    QComboBox *m_semesterCombo = nullptr;
 
     QPushButton *m_backButton = nullptr;
     QPushButton *m_syncButton = nullptr;
-    QPushButton *m_downloadButton = nullptr;
     QPushButton *m_openFolderButton = nullptr;
     QPushButton *m_openClassroomButton = nullptr;
 

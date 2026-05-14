@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
+#include <QComboBox>
 #include <utility>
 
 CourseDetailWidget::CourseDetailWidget(QWidget *parent)
@@ -45,6 +46,22 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     m_semesterLabel->setProperty("muted", true);
     headerLayout->addWidget(m_semesterLabel);
 
+    auto *semesterRow = new QHBoxLayout();
+    auto *semesterEditLabel = new QLabel(QStringLiteral("Semestre asignado:"), headerCard);
+    semesterEditLabel->setProperty("subtle", true);
+    semesterRow->addWidget(semesterEditLabel);
+    m_semesterCombo = new QComboBox(headerCard);
+    m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 1"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 2"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 3"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 4"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 5"));
+    m_semesterCombo->addItem(QStringLiteral("Semestre 6"));
+    semesterRow->addWidget(m_semesterCombo);
+    semesterRow->addStretch(1);
+    headerLayout->addLayout(semesterRow);
+
     m_summaryLabel = new QLabel(QStringLiteral("Tareas: 0"), headerCard);
     m_summaryLabel->setProperty("muted", true);
     headerLayout->addWidget(m_summaryLabel);
@@ -59,12 +76,10 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
 
     m_syncButton = new QPushButton(QStringLiteral("Sincronizar materia"), headerCard);
     m_syncButton->setProperty("variant", QStringLiteral("primary"));
-    m_downloadButton = new QPushButton(QStringLiteral("Descargar adjuntos"), headerCard);
     m_openFolderButton = new QPushButton(QStringLiteral("Abrir carpeta"), headerCard);
     m_openClassroomButton = new QPushButton(QStringLiteral("Classroom"), headerCard);
 
     actions->addWidget(m_syncButton);
-    actions->addWidget(m_downloadButton);
     actions->addWidget(m_openFolderButton);
     actions->addWidget(m_openClassroomButton);
     actions->addStretch(1);
@@ -90,14 +105,17 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     connect(m_syncButton, &QPushButton::clicked, this, [this]() {
         emit syncCourseRequested(m_course.id);
     });
-    connect(m_downloadButton, &QPushButton::clicked, this, [this]() {
-        emit downloadCourseAttachmentsRequested(m_course.id);
-    });
     connect(m_openFolderButton, &QPushButton::clicked, this, [this]() {
         emit openCourseFolderRequested(m_course.id);
     });
     connect(m_openClassroomButton, &QPushButton::clicked, this, [this]() {
         emit openCourseClassroomRequested(m_course.id);
+    });
+    connect(m_semesterCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        if (m_course.id.trimmed().isEmpty()) {
+            return;
+        }
+        emit semesterChanged(m_course.id, text.trimmed());
     });
 }
 
@@ -107,6 +125,13 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
 
     m_titleLabel->setText(course.name.trimmed().isEmpty() ? QStringLiteral("Materia") : course.name.trimmed());
     m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed()));
+    const QString targetSemester = course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed();
+    const int semesterIndex = m_semesterCombo->findText(targetSemester);
+    if (semesterIndex >= 0 && m_semesterCombo->currentIndex() != semesterIndex) {
+        m_semesterCombo->blockSignals(true);
+        m_semesterCombo->setCurrentIndex(semesterIndex);
+        m_semesterCombo->blockSignals(false);
+    }
     m_statusLabel->setText(QStringLiteral("Estado: %1").arg(statusLabel(course.status)));
     m_summaryLabel->setText(
         QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5 · Ultima sync %6")
@@ -165,7 +190,6 @@ void CourseDetailWidget::refreshAssignments()
         connect(itemWidget, &AssignmentListItemWidget::selected, this, &CourseDetailWidget::assignmentSelected);
         connect(itemWidget, &AssignmentListItemWidget::openFolderRequested, this, &CourseDetailWidget::openAssignmentFolderRequested);
         connect(itemWidget, &AssignmentListItemWidget::openClassroomRequested, this, &CourseDetailWidget::openAssignmentClassroomRequested);
-        connect(itemWidget, &AssignmentListItemWidget::downloadAttachmentsRequested, this, &CourseDetailWidget::downloadAssignmentAttachmentsRequested);
 
         m_listLayout->addWidget(itemWidget);
         ++visibleCount;

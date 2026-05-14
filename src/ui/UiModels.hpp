@@ -71,6 +71,7 @@ struct AssignmentListItemData {
     QString descriptionPreview;
     QString folderPath;
     QString classroomUrl;
+    bool archivedDeleted = false;
 };
 
 struct AttachmentUiState {
@@ -102,6 +103,7 @@ struct AssignmentPreviewData {
     QString localFolderPath;
     QString metadataPath;
     QString syncedAt;
+    bool archivedDeleted = false;
     QVector<AttachmentUiState> attachments;
     QJsonObject rawJson;
 };

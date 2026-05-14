@@ -42,7 +42,6 @@ private slots:
     void onLoadSampleData();
     void onLoadClassroom();
     void onSyncFolders();
-    void onDownloadAttachments();
 
     void onAuthStatusChanged(const QString &status);
     void onAuthFailed(const QString &errorMessage);
@@ -72,7 +71,7 @@ private slots:
     void onAssignmentSelected(const QString &courseId, const QString &assignmentId);
     void onOpenAssignmentFolder(const QString &courseId, const QString &assignmentId);
     void onOpenAssignmentClassroom(const QString &courseId, const QString &assignmentId);
-    void onDownloadAssignmentAttachments(const QString &courseId, const QString &assignmentId);
+    void onCourseSemesterChanged(const QString &courseId, const QString &semester);
 
     void onAssignmentBackRequested();
     void onResyncAssignmentMetadata(const QString &courseId, const QString &assignmentId);
@@ -82,6 +81,7 @@ private slots:
 
     void onTopBarSearchChanged(const QString &text);
     void onTopBarAccountRequested();
+    void onGlobalSemesterFilterChanged(const QString &semester);
 
     void appendLog(const QString &message);
     void appendError(const QString &message);
@@ -142,6 +142,7 @@ private:
 
     QString m_homeSearchText;
     QString m_courseSearchText;
+    QString m_globalSemesterFilter = QStringLiteral("Todos los semestres");
 
     QStringList m_logLines;
 

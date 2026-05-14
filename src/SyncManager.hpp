@@ -1,17 +1,21 @@
 #pragma once
 
 #include "AttachmentDownloader.hpp"
+#include "AttachmentChecksumManager.hpp"
 #include "ClassroomClient.hpp"
 #include "ConfigManager.hpp"
 #include "DriveClient.hpp"
 #include "FolderOrganizer.hpp"
 #include "GoogleAuth.hpp"
 #include "Models.hpp"
+#include "SyncDiffEngine.hpp"
+#include "SyncStagingManager.hpp"
 #include "SyncStateManager.hpp"
 
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 
 class SyncManager : public QObject {
     Q_OBJECT
@@ -32,25 +36,36 @@ public:
     QString semesterForCourse(const QString &courseId) const;
     void setSemesterForCourse(const QString &courseId, const QString &semester);
     void setSemesterMapping(const QHash<QString, QString> &mapping);
+    QString globalSemesterFilter() const;
+    void setGlobalSemesterFilter(const QString &semester);
+    QString defaultSemester() const;
+    void setDefaultSemester(const QString &semester);
+    QString ensureSemesterFolderExists(const QString &semester);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
     QString courseFolderPath(const QString &courseId) const;
     QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentState(const QString &courseId, const QString &assignmentId) const;
     QJsonObject assignmentAttachmentsState(const QString &courseId, const QString &assignmentId) const;
+    QStringList knownAssignmentIds(const QString &courseId) const;
+    bool isAssignmentArchivedDeleted(const QString &courseId, const QString &assignmentId) const;
     bool localCourseFolderExists(const QString &courseId) const;
     bool localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const;
     bool localAssignmentMetadataExists(const QString &courseId, const QString &assignmentId) const;
 
     bool restoreLocalStateSnapshot();
     void publishCurrentState();
+    bool rebuildLocalIndex();
 
     void loadSampleData(const QString &samplePath = QString());
     void fetchFromClassroom();
     void attemptAutoFetchFromClassroom();
+    void verifyChecksumsInBackground();
     void setAutoDownloadAttachments(bool enabled);
     bool autoDownloadAttachments() const;
 
+    void syncAll();
+    void syncCourse(const QString &courseId);
     void syncFolders();
     void downloadAttachments();
 
@@ -71,10 +86,12 @@ signals:
     void attachmentCountersChanged(int blobDownloaded, int exported, int linksSaved, int skipped, int errors);
     void logMessage(const QString &message);
     void errorOccurred(const QString &message);
+    void syncStateChanged();
 
 private slots:
     void onCoursesFetched(const QList<Course> &courses);
     void onCourseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
+    void onCourseWorkSnapshotFetched(const QString &courseId, const QList<Assignment> &courseWork, bool fetchComplete);
     void onClientRequestFailed(const QString &context, int httpStatus, const QString &message);
     void onAttachmentProgress(int current, int total);
     void onAttachmentFinished(int downloaded, int skipped, int errors);
@@ -83,12 +100,36 @@ private slots:
 
     void onTokenUpdated();
     void onAuthSucceeded();
+    void onChecksumFailed(const QString &courseId, const QString &assignmentId, const QStringList &attachmentKeys);
+    void onChecksumLog(const QString &message);
 
 private:
+    enum class SyncOperationMode {
+        Idle,
+        FetchOnlyAll,
+        SyncAll,
+        SyncCourse
+    };
+
     void refreshAuthConfig();
     void startFetchingCourses();
     bool loadLocalStateIntoMemory(bool logOnFailure = true);
     QJsonObject buildMetadata(const Course &course, const Assignment &assignment) const;
+    void resetSyncOperationState();
+    void startSyncAllInternal();
+    void startSyncCourseInternal(const QString &courseId);
+    void maybeFinalizeStagedSync();
+    void finalizeFetchOnly();
+    void applyStagedDiffForScope();
+    Course resolveCourseForSync(const QString &courseId) const;
+    Assignment findStagedAssignment(const QString &courseId, const QString &assignmentId) const;
+    bool ensureCourseAndAssignmentPaths(
+        const Course &course,
+        const Assignment &assignment,
+        QString *coursePath,
+        QString *assignmentPath) const;
+    void startAttachmentDownloadForAssignments(const QVector<Assignment> &assignments);
+    QString syncActionLabel(SyncActionType type) const;
 
     void logInfo(const QString &message);
     void logNew(const QString &message);
@@ -104,6 +145,9 @@ private:
     ClassroomClient m_classroomClient;
     DriveClient m_driveClient;
     AttachmentDownloader m_attachmentDownloader;
+    AttachmentChecksumManager m_attachmentChecksumManager;
+    SyncStagingManager m_stagingManager;
+    SyncDiffEngine m_diffEngine;
     GoogleAuth m_googleAuth;
 
     QList<Course> m_courses;
@@ -123,4 +167,15 @@ private:
     int m_attachmentSkipped = 0;
     int m_attachmentErrors = 0;
     bool m_autoDownloadAttachments = false;
+    bool m_rebuildAfterFetch = false;
+    QHash<QString, int> m_checksumRepairAttempts;
+
+    SyncOperationMode m_syncOperationMode = SyncOperationMode::Idle;
+    QString m_syncScopeCourseId;
+    QStringList m_scopedCourseIds;
+    QSet<QString> m_pendingCourseWorkCourses;
+    QSet<QString> m_incompleteCourseFetches;
+    QHash<QString, Course> m_stagedCourses;
+    QHash<QString, QList<Assignment>> m_stagedAssignmentsByCourse;
+    bool m_stagingSessionActive = false;
 };

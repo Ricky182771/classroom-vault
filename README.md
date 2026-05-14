@@ -1,6 +1,6 @@
 # Classroom Vault / TareaSync
 
-Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y organizar tareas por semestre/materia, con descarga opcional de adjuntos.
+Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y organizar tareas por semestre/materia, incluyendo adjuntos dentro del mismo flujo de sincronizacion.
 
 ## Estado actual
 
@@ -10,7 +10,12 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - Estado persistente en `sync_state.json` para evitar duplicados.
 - Restauracion de estado local al iniciar (cursos/tareas desde `sync_state.json`).
 - Carga automatica de Classroom al abrir si existe sesion valida (sin abrir navegador automaticamente).
+- Selector global de semestre (Todos/Sin semestre/Semestre 1..6) y selector manual por materia.
+- Reconstruccion segura de indice local con backup `.bak` de `sync_state.json` (sin borrar trabajos del usuario).
 - Deteccion de `materials` en tareas.
+- Sincronizacion por **staging de metadata fresca** (`~/.cache/.../sync_staging`) antes de tocar estado persistente.
+- `Sincronizar materia` sincroniza solo el `courseId` seleccionado (no ejecuta sync global).
+- Deteccion de tareas eliminadas solo cuando el fetch del curso fue completo.
 - Nueva interfaz Qt Widgets modular en modo oscuro (inspirada en Classroom, enfocada a respaldo historico):
   - Flujo jerarquico principal: **Inicio -> Materia -> Tarea**.
   - Grid de cursos responsive con **maximo 4 columnas**.
@@ -27,7 +32,7 @@ Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y 
 - `Materia`: lista de tareas del curso seleccionado, estado de metadata/adjuntos y acciones.
 - `Tarea`: previsualizacion local (titulo, descripcion, fecha, estado, evidencia, adjuntos).
 - `Actividad`: panel desplegable para logs recientes.
-- `Ruta`: controles globales (cambiar ruta, abrir respaldo, sincronizar, descargar adjuntos).
+- `Ruta`: controles globales (cambiar ruta, abrir respaldo, sincronizar todo).
 
 ## Estados visuales de curso
 
@@ -185,14 +190,37 @@ Ruta base/
 
 ## Descarga de adjuntos
 
-- Boton GUI: **Descargar adjuntos**.
-- Opcion GUI: **Descargar adjuntos al sincronizar**.
+- **Sincronizar todo** ahora tambien procesa adjuntos automaticamente.
+- Los adjuntos se guardan siempre en `../Tarea/Adjuntos/`.
 - Para `driveFile`:
   - metadata: `files.get`
   - binarios: `files.get?alt=media`
   - Google Workspace: `files.export`
 - Para `link`, `youtubeVideo`, `form`:
   - se guarda `.url` en carpeta `Adjuntos/`.
+
+## Sincronizacion con staging
+
+Flujo de `Sincronizar todo`:
+
+1. Fetch remoto de Classroom.
+2. Guardado de metadata nueva en staging temporal.
+3. Manifest por curso con estado `complete/incomplete`.
+4. Diff staging vs `sync_state.json` (`new/updated/same/deleted_archived/restored`).
+5. Aplicacion de cambios en `metadata.json` y `sync_state.json`.
+6. Procesamiento de adjuntos.
+
+Flujo de `Sincronizar materia`:
+
+- Solo consulta y aplica cambios para ese curso.
+- No modifica otras materias.
+- No descarga adjuntos de otras materias.
+
+Regla clave:
+
+- La metadata nueva en staging tiene prioridad para esa sesion de sync.
+- Si el fetch de un curso es `incomplete`, no se detectan eliminadas para ese curso.
+- Los cambios normales (tareas nuevas o actualizadas) deben reflejarse sin flush manual.
 
 ### Exportaciones Workspace
 
@@ -213,6 +241,28 @@ Ruta base/
 - `metadata.json` de cada tarea se actualiza con una seccion `attachments` basada en el estado sincronizado.
 - `metadata.json` no se reescribe si su hash (`metadataHash`) no cambio.
 - Si falta carpeta/metadata/adjunto local previamente registrado, se marca como `MISS` y se repara en la siguiente sincronizacion.
+
+## Checksums de adjuntos
+
+- Despues de procesar adjuntos, la app genera `../Tarea/Adjuntos/.checksum` con `SHA256`.
+- Al abrir la app, se verifica en segundo plano el checksum de tareas conocidas.
+- Si falla un archivo, se intenta re-descargar solo ese adjunto (no descarga masiva).
+- Si no se puede mapear el archivo fallido a un adjunto remoto, se registra error y se conserva el resto del estado.
+
+## Reconstruccion segura de indice local
+
+- Menu de cuenta -> **Reconstruir indice local**.
+- Hace backup de `sync_state.json` como `sync_state.json.bak.<timestamp>`.
+- Limpia y reconstruye el estado interno desde Classroom + disco.
+- No borra carpetas de tareas, no borra `Adjuntos/`, no borra archivos personales del usuario.
+- Es una herramienta de recuperacion, no parte del flujo normal de sincronizacion.
+
+## Columna "Tu trabajo"
+
+- En detalle de tarea existe panel lateral **Tu trabajo**.
+- Lista archivos y carpetas propios dentro de `../Tarea/`.
+- Ignora `metadata.json` y `Adjuntos/`.
+- Doble clic abre archivo/carpeta local.
 
 ### Eventos de log incremental
 

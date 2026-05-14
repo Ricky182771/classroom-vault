@@ -1,5 +1,7 @@
 #include "AssignmentListItemWidget.hpp"
 
+#include "AssignmentStatusResolver.hpp"
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -39,6 +41,11 @@ AssignmentListItemWidget::AssignmentListItemWidget(QWidget *parent)
     m_dueLabel->setProperty("muted", true);
     topRow->addWidget(m_dueLabel);
 
+    m_visualStatusBadge = new QLabel(QStringLiteral("Vigente"), this);
+    m_visualStatusBadge->setStyleSheet(
+        QStringLiteral("padding:4px 8px;border-radius:8px;background:#239cc7;color:#ffffff;font-weight:600;"));
+    topRow->addWidget(m_visualStatusBadge);
+
     root->addLayout(topRow);
 
     auto *metaRow = new QHBoxLayout();
@@ -68,12 +75,10 @@ AssignmentListItemWidget::AssignmentListItemWidget(QWidget *parent)
     m_openButton->setProperty("variant", QStringLiteral("primary"));
     m_openFolderButton = new QPushButton(QStringLiteral("Abrir carpeta"), this);
     m_openClassroomButton = new QPushButton(QStringLiteral("Classroom"), this);
-    m_downloadButton = new QPushButton(QStringLiteral("Adjuntos"), this);
 
     buttons->addWidget(m_openButton);
     buttons->addWidget(m_openFolderButton);
     buttons->addWidget(m_openClassroomButton);
-    buttons->addWidget(m_downloadButton);
     buttons->addStretch(1);
 
     root->addLayout(buttons);
@@ -86,9 +91,6 @@ AssignmentListItemWidget::AssignmentListItemWidget(QWidget *parent)
     });
     connect(m_openClassroomButton, &QPushButton::clicked, this, [this]() {
         emit openClassroomRequested(m_data.courseId, m_data.assignmentId);
-    });
-    connect(m_downloadButton, &QPushButton::clicked, this, [this]() {
-        emit downloadAttachmentsRequested(m_data.courseId, m_data.assignmentId);
     });
 }
 
@@ -111,6 +113,15 @@ void AssignmentListItemWidget::setData(const AssignmentListItemData &data)
 
     m_openFolderButton->setEnabled(!data.folderPath.trimmed().isEmpty());
     m_openClassroomButton->setEnabled(!data.classroomUrl.trimmed().isEmpty());
+
+    const AssignmentStatusResolver::VisualState visual = AssignmentStatusResolver::resolve(data);
+    m_visualStatusBadge->setText(visual.label);
+    m_visualStatusBadge->setStyleSheet(
+        QStringLiteral("padding:4px 8px;border-radius:8px;background:%1;color:%2;font-weight:600;")
+            .arg(visual.backgroundColor, visual.textColor));
+    m_titleLabel->setStyleSheet(
+        QStringLiteral("font-weight:700;font-size:14px;background:%1;color:%2;border:none;border-radius:6px;padding:4px 6px;")
+            .arg(visual.backgroundColor, visual.textColor));
 }
 
 AssignmentListItemData AssignmentListItemWidget::data() const

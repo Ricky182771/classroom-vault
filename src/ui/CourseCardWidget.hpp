@@ -21,7 +21,6 @@ signals:
     void openCourseRequested(const QString &courseId);
     void openFolderRequested(const QString &courseId);
     void syncCourseRequested(const QString &courseId);
-    void downloadAttachmentsRequested(const QString &courseId);
     void openClassroomRequested(const QString &courseId);
 
 private:
@@ -42,6 +41,5 @@ private:
     QPushButton *m_openTasksButton = nullptr;
     QPushButton *m_openFolderButton = nullptr;
     QPushButton *m_syncButton = nullptr;
-    QPushButton *m_attachmentsButton = nullptr;
     QPushButton *m_classroomButton = nullptr;
 };

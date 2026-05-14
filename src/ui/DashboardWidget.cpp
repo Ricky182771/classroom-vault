@@ -125,7 +125,6 @@ DashboardWidget::DashboardWidget(QWidget *parent)
     connect(m_courseGrid, &CourseGridWidget::openCourseRequested, this, &DashboardWidget::openCourseRequested);
     connect(m_courseGrid, &CourseGridWidget::openFolderRequested, this, &DashboardWidget::openFolderRequested);
     connect(m_courseGrid, &CourseGridWidget::syncCourseRequested, this, &DashboardWidget::syncCourseRequested);
-    connect(m_courseGrid, &CourseGridWidget::downloadAttachmentsRequested, this, &DashboardWidget::downloadAttachmentsRequested);
     connect(m_courseGrid, &CourseGridWidget::openClassroomRequested, this, &DashboardWidget::openClassroomRequested);
 
     connect(m_activityPanel, &ActivityPanelWidget::showHistoryRequested, this, &DashboardWidget::showHistoryRequested);

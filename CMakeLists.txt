@@ -24,10 +24,16 @@ qt_add_executable(classroom-vault
     src/SyncManager.cpp
     src/SyncStateManager.hpp
     src/SyncStateManager.cpp
+    src/SyncStagingManager.hpp
+    src/SyncStagingManager.cpp
+    src/SyncDiffEngine.hpp
+    src/SyncDiffEngine.cpp
     src/DriveClient.hpp
     src/DriveClient.cpp
     src/AttachmentDownloader.hpp
     src/AttachmentDownloader.cpp
+    src/AttachmentChecksumManager.hpp
+    src/AttachmentChecksumManager.cpp
     src/Models.hpp
     src/Utils.hpp
     src/ui/MainWindow.hpp
@@ -43,8 +49,12 @@ qt_add_executable(classroom-vault
     src/ui/CourseDetailWidget.cpp
     src/ui/AssignmentListItemWidget.hpp
     src/ui/AssignmentListItemWidget.cpp
+    src/ui/AssignmentStatusResolver.hpp
+    src/ui/AssignmentStatusResolver.cpp
     src/ui/AssignmentDetailWidget.hpp
     src/ui/AssignmentDetailWidget.cpp
+    src/ui/UserWorkPanelWidget.hpp
+    src/ui/UserWorkPanelWidget.cpp
     src/ui/AttachmentCardWidget.hpp
     src/ui/AttachmentCardWidget.cpp
     src/ui/ActivityDrawerWidget.hpp

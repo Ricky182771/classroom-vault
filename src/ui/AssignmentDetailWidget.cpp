@@ -1,6 +1,8 @@
 #include "AssignmentDetailWidget.hpp"
 
+#include "AssignmentStatusResolver.hpp"
 #include "AttachmentCardWidget.hpp"
+#include "UserWorkPanelWidget.hpp"
 
 #include <QDesktopServices>
 #include <QFileInfo>
@@ -31,6 +33,15 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     contentLayout->setContentsMargins(12, 12, 12, 12);
     contentLayout->setSpacing(12);
 
+    auto *bodyRow = new QHBoxLayout();
+    bodyRow->setSpacing(12);
+    bodyRow->setContentsMargins(0, 0, 0, 0);
+
+    auto *mainColumnContainer = new QWidget(m_scrollContent);
+    auto *mainColumnLayout = new QVBoxLayout(mainColumnContainer);
+    mainColumnLayout->setContentsMargins(0, 0, 0, 0);
+    mainColumnLayout->setSpacing(12);
+
     auto *headerCard = new QFrame(m_scrollContent);
     headerCard->setObjectName(QStringLiteral("Section"));
 
@@ -45,10 +56,20 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     topRow->addStretch(1);
     headerLayout->addLayout(topRow);
 
+    auto *titleRow = new QHBoxLayout();
+    titleRow->setSpacing(8);
+
     m_titleLabel = new QLabel(QStringLiteral("Tarea"), headerCard);
     m_titleLabel->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;background:transparent;border:none;"));
     m_titleLabel->setWordWrap(true);
-    headerLayout->addWidget(m_titleLabel);
+    titleRow->addWidget(m_titleLabel, 1);
+
+    m_visualStatusBadge = new QLabel(QStringLiteral("Vigente"), headerCard);
+    m_visualStatusBadge->setStyleSheet(
+        QStringLiteral("padding:5px 10px;border-radius:9px;background:#239cc7;color:#ffffff;font-weight:600;"));
+    titleRow->addWidget(m_visualStatusBadge);
+
+    headerLayout->addLayout(titleRow);
 
     m_courseLabel = new QLabel(QStringLiteral("Materia: —"), headerCard);
     m_courseLabel->setProperty("muted", true);
@@ -72,17 +93,15 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     m_openClassroomButton = new QPushButton(QStringLiteral("Abrir en Classroom"), headerCard);
     m_openFolderButton = new QPushButton(QStringLiteral("Abrir carpeta local"), headerCard);
     m_resyncButton = new QPushButton(QStringLiteral("Re-sincronizar metadata"), headerCard);
-    m_downloadButton = new QPushButton(QStringLiteral("Descargar adjuntos"), headerCard);
 
     actions->addWidget(m_openClassroomButton);
     actions->addWidget(m_openFolderButton);
     actions->addWidget(m_resyncButton);
-    actions->addWidget(m_downloadButton);
     actions->addStretch(1);
 
     headerLayout->addLayout(actions);
 
-    contentLayout->addWidget(headerCard);
+    mainColumnLayout->addWidget(headerCard);
 
     auto *descriptionCard = new QFrame(m_scrollContent);
     descriptionCard->setObjectName(QStringLiteral("Section"));
@@ -107,7 +126,7 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     m_evidenceLabel->setWordWrap(true);
     descriptionLayout->addWidget(m_evidenceLabel);
 
-    contentLayout->addWidget(descriptionCard);
+    mainColumnLayout->addWidget(descriptionCard);
 
     auto *attachmentsSection = new QFrame(m_scrollContent);
     attachmentsSection->setObjectName(QStringLiteral("Section"));
@@ -126,7 +145,15 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     m_attachmentsLayout->addStretch(1);
     attachmentsSectionLayout->addWidget(m_attachmentsContainer);
 
-    contentLayout->addWidget(attachmentsSection);
+    mainColumnLayout->addWidget(attachmentsSection);
+    mainColumnLayout->addStretch(1);
+
+    bodyRow->addWidget(mainColumnContainer, 1);
+
+    m_userWorkPanel = new UserWorkPanelWidget(m_scrollContent);
+    bodyRow->addWidget(m_userWorkPanel, 0, Qt::AlignTop);
+
+    contentLayout->addLayout(bodyRow);
     contentLayout->addStretch(1);
 
     m_scrollArea->setWidget(m_scrollContent);
@@ -141,9 +168,6 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     connect(m_resyncButton, &QPushButton::clicked, this, [this]() {
         emit resyncMetadataRequested(m_preview.courseId, m_preview.assignmentId);
     });
-    connect(m_downloadButton, &QPushButton::clicked, this, [this]() {
-        emit downloadAttachmentsRequested(m_preview.courseId, m_preview.assignmentId);
-    });
 }
 
 void AssignmentDetailWidget::setPreviewData(const AssignmentPreviewData &preview)
@@ -155,6 +179,15 @@ void AssignmentDetailWidget::setPreviewData(const AssignmentPreviewData &preview
     m_dueLabel->setText(QStringLiteral("Entrega: %1 %2").arg(preview.dueDateText, preview.dueTimeText));
     m_stateLabel->setText(QStringLiteral("Estado: %1").arg(preview.state.trimmed().isEmpty() ? QStringLiteral("—") : preview.state.trimmed()));
     m_typeLabel->setText(QStringLiteral("Tipo: %1").arg(preview.workType.trimmed().isEmpty() ? QStringLiteral("—") : preview.workType.trimmed()));
+
+    const AssignmentStatusResolver::VisualState visual = AssignmentStatusResolver::resolve(preview);
+    m_visualStatusBadge->setText(visual.label);
+    m_visualStatusBadge->setStyleSheet(
+        QStringLiteral("padding:5px 10px;border-radius:9px;background:%1;color:%2;font-weight:600;")
+            .arg(visual.backgroundColor, visual.textColor));
+    m_titleLabel->setStyleSheet(
+        QStringLiteral("font-size:20px;font-weight:700;background:%1;color:%2;border:none;border-radius:8px;padding:5px 8px;")
+            .arg(visual.backgroundColor, visual.textColor));
 
     QString description = preview.description.trimmed();
     if (description.isEmpty()) {
@@ -171,6 +204,8 @@ void AssignmentDetailWidget::setPreviewData(const AssignmentPreviewData &preview
 
     m_openClassroomButton->setEnabled(!preview.alternateLink.trimmed().isEmpty());
     m_openFolderButton->setEnabled(!preview.localFolderPath.trimmed().isEmpty());
+    m_userWorkPanel->setAssignmentFolderPath(preview.localFolderPath);
+    m_userWorkPanel->refresh();
 
     rebuildAttachments();
 }

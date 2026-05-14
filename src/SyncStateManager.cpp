@@ -209,6 +209,17 @@ QJsonObject SyncStateManager::assignmentState(const QString &courseId, const QSt
     return assignmentObject(courseId, assignmentId);
 }
 
+bool SyncStateManager::isAssignmentArchivedDeleted(const QString &courseId, const QString &assignmentId) const
+{
+    const QJsonObject assignmentEntry = assignmentObject(courseId, assignmentId);
+    if (assignmentEntry.value(QStringLiteral("isArchivedDeleted")).toBool(false)) {
+        return true;
+    }
+
+    const QJsonObject archivalStatus = assignmentEntry.value(QStringLiteral("archivalStatus")).toObject();
+    return archivalStatus.value(QStringLiteral("status")).toString() == QStringLiteral("deleted_archived");
+}
+
 bool SyncStateManager::isAssignmentMetadataChanged(
     const QString &courseId,
     const QString &assignmentId,
@@ -265,6 +276,9 @@ void SyncStateManager::updateAssignment(
     const QString now = Utils::nowIsoStringUtc();
 
     assignmentEntry.insert(QStringLiteral("title"), Utils::effectiveAssignmentTitle(assignment));
+    assignmentEntry.insert(QStringLiteral("state"), assignment.state);
+    assignmentEntry.insert(QStringLiteral("workType"), assignment.workType);
+    assignmentEntry.insert(QStringLiteral("alternateLink"), assignment.alternateLink);
     assignmentEntry.insert(QStringLiteral("folderName"), folderName);
     assignmentEntry.insert(QStringLiteral("folderPath"), folderPath);
     assignmentEntry.insert(QStringLiteral("metadataPath"), metadataPath);
@@ -276,6 +290,8 @@ void SyncStateManager::updateAssignment(
     if (!assignmentEntry.contains(QStringLiteral("attachments")) || !assignmentEntry.value(QStringLiteral("attachments")).isObject()) {
         assignmentEntry.insert(QStringLiteral("attachments"), QJsonObject());
     }
+    assignmentEntry.remove(QStringLiteral("isArchivedDeleted"));
+    assignmentEntry.remove(QStringLiteral("archivalStatus"));
 
     assignments.insert(assignment.id, assignmentEntry);
     courseEntry.insert(QStringLiteral("assignments"), assignments);
@@ -329,6 +345,87 @@ void SyncStateManager::updateAttachment(
     attachments.insert(attachmentKey, attachmentData);
     assignmentEntry.insert(QStringLiteral("attachments"), attachments);
 
+    assignments.insert(assignmentId, assignmentEntry);
+    courseEntry.insert(QStringLiteral("assignments"), assignments);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+void SyncStateManager::markAssignmentArchivedDeleted(
+    const QString &courseId,
+    const QString &assignmentId,
+    const QString &reason)
+{
+    if (courseId.trimmed().isEmpty() || assignmentId.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+
+    if (!courseEntry.contains(QStringLiteral("assignments")) || !courseEntry.value(QStringLiteral("assignments")).isObject()) {
+        courseEntry.insert(QStringLiteral("assignments"), QJsonObject());
+    }
+
+    QJsonObject assignments = courseEntry.value(QStringLiteral("assignments")).toObject();
+    QJsonObject assignmentEntry = assignments.value(assignmentId).toObject();
+
+    QJsonObject archival;
+    archival.insert(QStringLiteral("status"), QStringLiteral("deleted_archived"));
+    archival.insert(QStringLiteral("detectedAt"), Utils::nowIsoStringUtc());
+    archival.insert(QStringLiteral("reason"), reason);
+
+    assignmentEntry.insert(QStringLiteral("isArchivedDeleted"), true);
+    assignmentEntry.insert(QStringLiteral("archivalStatus"), archival);
+    assignmentEntry.insert(QStringLiteral("lastSeen"), Utils::nowIsoStringUtc());
+
+    assignments.insert(assignmentId, assignmentEntry);
+    courseEntry.insert(QStringLiteral("assignments"), assignments);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+void SyncStateManager::clearAssignmentArchivedDeleted(const QString &courseId, const QString &assignmentId)
+{
+    if (courseId.trimmed().isEmpty() || assignmentId.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+    QJsonObject assignments = courseEntry.value(QStringLiteral("assignments")).toObject();
+    QJsonObject assignmentEntry = assignments.value(assignmentId).toObject();
+    if (assignmentEntry.isEmpty()) {
+        return;
+    }
+
+    assignmentEntry.remove(QStringLiteral("isArchivedDeleted"));
+    assignmentEntry.remove(QStringLiteral("archivalStatus"));
+    assignments.insert(assignmentId, assignmentEntry);
+    courseEntry.insert(QStringLiteral("assignments"), assignments);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+void SyncStateManager::updateAssignmentChecksumState(
+    const QString &courseId,
+    const QString &assignmentId,
+    const QJsonObject &checksumState)
+{
+    if (courseId.trimmed().isEmpty() || assignmentId.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+
+    if (!courseEntry.contains(QStringLiteral("assignments")) || !courseEntry.value(QStringLiteral("assignments")).isObject()) {
+        courseEntry.insert(QStringLiteral("assignments"), QJsonObject());
+    }
+
+    QJsonObject assignments = courseEntry.value(QStringLiteral("assignments")).toObject();
+    QJsonObject assignmentEntry = assignments.value(assignmentId).toObject();
+    assignmentEntry.insert(QStringLiteral("checksum"), checksumState);
     assignments.insert(assignmentId, assignmentEntry);
     courseEntry.insert(QStringLiteral("assignments"), assignments);
     courses.insert(courseId, courseEntry);

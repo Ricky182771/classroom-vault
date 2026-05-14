@@ -2,8 +2,10 @@
 
 #include "Models.hpp"
 
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QSet>
 #include <QVector>
 
 class DriveClient;
@@ -20,6 +22,7 @@ public:
     void setDriveDownloadsEnabled(bool enabled);
 
     void downloadAttachmentsForAssignments(const QVector<Assignment> &assignments);
+    void redownloadForAssignmentKeys(const Assignment &assignment, const QStringList &attachmentKeys);
 
 signals:
     void attachmentProgress(int current, int total);
@@ -49,6 +52,7 @@ private:
 
     void processNext();
     void processCurrentDriveMaterial();
+    void enqueueMaterials(const QVector<Assignment> &assignments);
 
     void finalizeCurrentItem(ResultKind result);
     void syncAssignmentMetadataAttachments(const Assignment &assignment) const;
@@ -58,6 +62,7 @@ private:
     QString ensureAttachmentsDir(const Assignment &assignment, bool *ok = nullptr) const;
 
     QString materialDisplayName(const AssignmentMaterial &material) const;
+    QString materialKey(const AssignmentMaterial &material) const;
     QString linkKey(const QString &url) const;
     QString localFileMd5(const QString &path) const;
     QString preferredUrlForMaterial(const AssignmentMaterial &material, const QJsonObject &driveMetadata = QJsonObject()) const;
@@ -112,4 +117,6 @@ private:
     int m_linksSaved = 0;
     int m_skipped = 0;
     int m_errors = 0;
+
+    QHash<QString, QSet<QString>> m_allowedAttachmentKeysByAssignment;
 };

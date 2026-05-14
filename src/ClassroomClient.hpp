@@ -4,6 +4,7 @@
 
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QString>
@@ -29,6 +30,7 @@ public:
 signals:
     void coursesFetched(const QList<Course> &courses);
     void courseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
+    void courseWorkSnapshotFetched(const QString &courseId, const QList<Assignment> &courseWork, bool fetchComplete);
     void errorOccurred(const QString &operation, const QString &message);
     void requestFailed(const QString &context, int httpStatus, const QString &errorMessage);
     void tokenInvalid();
@@ -53,10 +55,13 @@ private:
 
     void fetchCoursesFromApi();
     void fetchCourseWorkFromApi(const QString &courseId);
+    void fetchCourseWorkPageFromApi(const QString &courseId, const QString &pageToken);
 
     QString m_accessToken;
     bool m_useSampleData = true;
     QString m_sampleDataPath;
 
     QNetworkAccessManager m_networkManager;
+    QHash<QString, QList<Assignment>> m_courseWorkAccumulator;
+    QHash<QString, int> m_courseWorkPageCount;
 };

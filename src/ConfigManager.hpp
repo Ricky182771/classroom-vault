@@ -24,6 +24,10 @@ public:
     void setSemesterForCourse(const QString &courseId, const QString &semester);
     QHash<QString, QString> semesterMapping() const;
     void setSemesterMapping(const QHash<QString, QString> &mapping);
+    QString globalSemesterFilter() const;
+    void setGlobalSemesterFilter(const QString &semester);
+    QString defaultSemester() const;
+    void setDefaultSemester(const QString &semester);
     QString legacySemesterForCourseName(const QString &courseName) const;
     void clearLegacySemesterForCourseName(const QString &courseName);
 
@@ -50,5 +54,7 @@ private:
     QString m_basePath;
     QHash<QString, QString> m_courseSemesters;
     QHash<QString, QString> m_legacyCourseSemestersByName;
+    QString m_globalSemesterFilter;
+    QString m_defaultSemester;
     QJsonObject m_oauth;
 };

@@ -55,6 +55,7 @@ void AttachmentDownloader::downloadAttachmentsForAssignments(const QVector<Assig
     m_currentDriveMetadata = QJsonObject();
     m_currentDriveAction.clear();
     m_currentDriveExportMimeType.clear();
+    m_allowedAttachmentKeysByAssignment.clear();
 
     m_currentIndex = 0;
     m_total = 0;
@@ -72,23 +73,7 @@ void AttachmentDownloader::downloadAttachmentsForAssignments(const QVector<Assig
         return;
     }
 
-    for (const Assignment &assignment : assignments) {
-        if (assignment.materials.isEmpty()) {
-            continue;
-        }
-
-        const QString path = assignmentFolderPath(assignment);
-        if (path.isEmpty() || !QFileInfo::exists(path)) {
-            continue;
-        }
-
-        for (const AssignmentMaterial &material : assignment.materials) {
-            WorkItem item;
-            item.assignment = assignment;
-            item.material = material;
-            m_queue.append(item);
-        }
-    }
+    enqueueMaterials(assignments);
 
     m_total = m_queue.size();
     if (m_total == 0) {
@@ -99,6 +84,83 @@ void AttachmentDownloader::downloadAttachmentsForAssignments(const QVector<Assig
 
     emit attachmentLog(QStringLiteral("INFO  Procesando adjuntos..."));
     processNext();
+}
+
+void AttachmentDownloader::redownloadForAssignmentKeys(const Assignment &assignment, const QStringList &attachmentKeys)
+{
+    m_queue.clear();
+    m_hasCurrent = false;
+    m_currentDriveMetadata = QJsonObject();
+    m_currentDriveAction.clear();
+    m_currentDriveExportMimeType.clear();
+    m_allowedAttachmentKeysByAssignment.clear();
+
+    m_currentIndex = 0;
+    m_total = 0;
+    m_blobDownloaded = 0;
+    m_workspaceExported = 0;
+    m_linksSaved = 0;
+    m_skipped = 0;
+    m_errors = 0;
+    emit attachmentCountersChanged(0, 0, 0, 0, 0);
+
+    if (!m_syncStateManager) {
+        emit attachmentLog(QStringLiteral("ERR   SyncStateManager no configurado para adjuntos."));
+        emit attachmentFinished(0, 0, 1);
+        return;
+    }
+
+    const QString assignmentKey = assignment.courseId + QStringLiteral(":") + assignment.id;
+    QSet<QString> allowed;
+    for (const QString &key : attachmentKeys) {
+        const QString clean = key.trimmed();
+        if (!clean.isEmpty()) {
+            allowed.insert(clean);
+        }
+    }
+    m_allowedAttachmentKeysByAssignment.insert(assignmentKey, allowed);
+
+    QVector<Assignment> oneAssignment;
+    oneAssignment.append(assignment);
+    enqueueMaterials(oneAssignment);
+
+    m_total = m_queue.size();
+    if (m_total == 0) {
+        emit attachmentLog(QStringLiteral("INFO  No hay adjuntos pendientes para re-descarga selectiva."));
+        emit attachmentFinished(0, 0, 0);
+        return;
+    }
+
+    emit attachmentLog(QStringLiteral("INFO  Re-descargando adjuntos fallidos..."));
+    processNext();
+}
+
+void AttachmentDownloader::enqueueMaterials(const QVector<Assignment> &assignments)
+{
+    for (const Assignment &assignment : assignments) {
+        if (assignment.materials.isEmpty()) {
+            continue;
+        }
+
+        const QString path = assignmentFolderPath(assignment);
+        if (path.isEmpty() || !QFileInfo::exists(path)) {
+            continue;
+        }
+
+        const QString assignmentKey = assignment.courseId + QStringLiteral(":") + assignment.id;
+        const QSet<QString> allowedKeys = m_allowedAttachmentKeysByAssignment.value(assignmentKey);
+
+        for (const AssignmentMaterial &material : assignment.materials) {
+            if (!allowedKeys.isEmpty() && !allowedKeys.contains(materialKey(material))) {
+                continue;
+            }
+
+            WorkItem item;
+            item.assignment = assignment;
+            item.material = material;
+            m_queue.append(item);
+        }
+    }
 }
 
 QString AttachmentDownloader::assignmentFolderPath(const Assignment &assignment) const
@@ -159,6 +221,20 @@ QString AttachmentDownloader::materialDisplayName(const AssignmentMaterial &mate
         return QStringLiteral("Enlace");
     }
     return QStringLiteral("Archivo de Drive");
+}
+
+QString AttachmentDownloader::materialKey(const AssignmentMaterial &material) const
+{
+    if (material.type == QStringLiteral("driveFile")) {
+        return material.driveFileId.trimmed();
+    }
+    if (material.type == QStringLiteral("link")
+        || material.type == QStringLiteral("youtubeVideo")
+        || material.type == QStringLiteral("form")) {
+        const QString url = preferredUrlForMaterial(material);
+        return linkKey(url);
+    }
+    return QString();
 }
 
 QString AttachmentDownloader::preferredUrlForMaterial(const AssignmentMaterial &material, const QJsonObject &driveMetadata) const

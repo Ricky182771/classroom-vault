@@ -33,7 +33,6 @@ signals:
     void openCourseRequested(const QString &courseId);
     void openFolderRequested(const QString &courseId);
     void syncCourseRequested(const QString &courseId);
-    void downloadAttachmentsRequested(const QString &courseId);
     void openClassroomRequested(const QString &courseId);
     void showHistoryRequested();
 

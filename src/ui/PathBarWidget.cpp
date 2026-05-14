@@ -27,9 +27,6 @@ PathBarWidget::PathBarWidget(QWidget *parent)
     m_openBasePathButton = new QPushButton(QStringLiteral("Abrir respaldo"), this);
     layout->addWidget(m_openBasePathButton);
 
-    m_downloadAttachmentsButton = new QPushButton(QStringLiteral("Descargar adjuntos"), this);
-    layout->addWidget(m_downloadAttachmentsButton);
-
     m_syncAllButton = new QPushButton(QStringLiteral("Sincronizar todo"), this);
     m_syncAllButton->setProperty("variant", QStringLiteral("primary"));
     layout->addWidget(m_syncAllButton);
@@ -44,7 +41,6 @@ PathBarWidget::PathBarWidget(QWidget *parent)
     connect(m_changePathButton, &QPushButton::clicked, this, &PathBarWidget::changeBasePathRequested);
     connect(m_openBasePathButton, &QPushButton::clicked, this, &PathBarWidget::openBasePathRequested);
     connect(m_syncAllButton, &QPushButton::clicked, this, &PathBarWidget::syncAllRequested);
-    connect(m_downloadAttachmentsButton, &QPushButton::clicked, this, &PathBarWidget::downloadAttachmentsRequested);
 }
 
 void PathBarWidget::setBasePath(const QString &basePath)

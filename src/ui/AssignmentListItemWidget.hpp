@@ -20,7 +20,6 @@ signals:
     void selected(const QString &courseId, const QString &assignmentId);
     void openFolderRequested(const QString &courseId, const QString &assignmentId);
     void openClassroomRequested(const QString &courseId, const QString &assignmentId);
-    void downloadAttachmentsRequested(const QString &courseId, const QString &assignmentId);
 
 private:
     AssignmentListItemData m_data;
@@ -28,6 +27,7 @@ private:
     QLabel *m_titleLabel = nullptr;
     QLabel *m_dueLabel = nullptr;
     QLabel *m_stateLabel = nullptr;
+    QLabel *m_visualStatusBadge = nullptr;
     QLabel *m_metaLabel = nullptr;
     QLabel *m_attachLabel = nullptr;
     QLabel *m_syncLabel = nullptr;
@@ -36,5 +36,4 @@ private:
     QPushButton *m_openButton = nullptr;
     QPushButton *m_openFolderButton = nullptr;
     QPushButton *m_openClassroomButton = nullptr;
-    QPushButton *m_downloadButton = nullptr;
 };

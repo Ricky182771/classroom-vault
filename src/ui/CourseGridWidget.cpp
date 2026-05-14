@@ -129,7 +129,6 @@ void CourseGridWidget::refreshGrid(bool force)
         connect(card, &CourseCardWidget::openCourseRequested, this, &CourseGridWidget::openCourseRequested);
         connect(card, &CourseCardWidget::openFolderRequested, this, &CourseGridWidget::openFolderRequested);
         connect(card, &CourseCardWidget::syncCourseRequested, this, &CourseGridWidget::syncCourseRequested);
-        connect(card, &CourseCardWidget::downloadAttachmentsRequested, this, &CourseGridWidget::downloadAttachmentsRequested);
         connect(card, &CourseCardWidget::openClassroomRequested, this, &CourseGridWidget::openClassroomRequested);
 
         m_grid->addWidget(card, row, col);
