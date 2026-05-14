@@ -119,7 +119,7 @@ void SyncManager::setBasePath(const QString &basePath)
 QString SyncManager::semesterForCourse(const QString &courseId) const
 {
     const QString semester = m_semesterByCourse.value(courseId).trimmed();
-    if (!semester.isEmpty()) {
+    if (!semester.isEmpty() && semester != QStringLiteral("Sin semestre")) {
         return semester;
     }
 
@@ -681,8 +681,14 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
 
         const QString legacySemester = m_configManager.legacySemesterForCourseName(course.name);
         if (!legacySemester.isEmpty()) {
-            m_semesterByCourse.insert(course.id, legacySemester);
-            m_configManager.setSemesterForCourse(course.id, legacySemester);
+            // "Sin semestre" heredado se considera valor por defecto, no asignacion manual.
+            if (legacySemester != QStringLiteral("Sin semestre")) {
+                m_semesterByCourse.insert(course.id, legacySemester);
+                m_configManager.setSemesterForCourse(course.id, legacySemester);
+            } else {
+                m_semesterByCourse.remove(course.id);
+                m_configManager.setSemesterForCourse(course.id, QString());
+            }
             m_configManager.clearLegacySemesterForCourseName(course.name);
             migratedLegacy = true;
             logInfo(
