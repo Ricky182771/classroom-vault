@@ -71,6 +71,9 @@ struct AssignmentListItemData {
     QString descriptionPreview;
     QString folderPath;
     QString classroomUrl;
+    QString submissionState;
+    bool submissionStateReliable = false;
+    bool submissionLate = false;
     bool archivedDeleted = false;
 };
 
@@ -103,6 +106,9 @@ struct AssignmentPreviewData {
     QString localFolderPath;
     QString metadataPath;
     QString syncedAt;
+    QString submissionState;
+    bool submissionStateReliable = false;
+    bool submissionLate = false;
     bool archivedDeleted = false;
     QVector<AttachmentUiState> attachments;
     QJsonObject rawJson;

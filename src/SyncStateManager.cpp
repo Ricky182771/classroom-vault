@@ -283,6 +283,12 @@ void SyncStateManager::updateAssignment(
     assignmentEntry.insert(QStringLiteral("folderPath"), folderPath);
     assignmentEntry.insert(QStringLiteral("metadataPath"), metadataPath);
     assignmentEntry.insert(QStringLiteral("metadataHash"), newHash);
+    const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
+    if (!submissionObj.isEmpty()) {
+        assignmentEntry.insert(QStringLiteral("submission"), submissionObj);
+    } else {
+        assignmentEntry.remove(QStringLiteral("submission"));
+    }
     if (oldHash != newHash || assignmentEntry.value(QStringLiteral("lastUpdated")).toString().isEmpty()) {
         assignmentEntry.insert(QStringLiteral("lastUpdated"), now);
     }

@@ -103,6 +103,7 @@ Debes habilitar ambas en tu proyecto de Google Cloud Console.
 
 - `https://www.googleapis.com/auth/classroom.courses.readonly`
 - `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
+- `https://www.googleapis.com/auth/classroom.student-submissions.me.readonly`
 - `https://www.googleapis.com/auth/drive.readonly`
 
 ## Autenticacion OAuth automatica
@@ -165,6 +166,13 @@ Mensaje esperado cuando falta permiso:
 
 Tambien puedes usar el boton **Cerrar sesion** en la GUI para limpiar sesion local y volver a autorizar.
 
+Si agregaste el scope de submissions y ya tenias token viejo:
+
+1. Cierra la app.
+2. Borra `~/.config/ClassroomVault/token.json` (o usa **Cerrar sesion**).
+3. Inicia sesion de nuevo.
+4. Acepta el permiso actualizado.
+
 ## Estructura de salida
 
 ```text
@@ -221,6 +229,22 @@ Regla clave:
 - La metadata nueva en staging tiene prioridad para esa sesion de sync.
 - Si el fetch de un curso es `incomplete`, no se detectan eliminadas para ese curso.
 - Los cambios normales (tareas nuevas o actualizadas) deben reflejarse sin flush manual.
+
+## Cambio de ruta base en caliente
+
+- Al cambiar la ruta base desde la UI, se aplica **sin reiniciar**.
+- La siguiente sincronizacion usa inmediatamente la ruta nueva.
+- No se mueven ni se borran datos de la ruta anterior de forma automatica.
+- Si existe estado previo en `sync_state.json` apuntando a otra ruta, solo se reutilizan rutas previas que esten dentro de la base activa.
+
+## Estado de entrega de tareas
+
+- Classroom Vault usa `studentSubmissions` cuando estan disponibles para determinar entrega real.
+- `TURNED_IN` y `RETURNED` se muestran como:
+  - `Entregada` (vigente)
+  - `Expirada y entregada` (si ya vencio)
+- `No entregada` solo se muestra con evidencia confiable de no entrega (`NEW`, `CREATED`, `RECLAIMED_BY_STUDENT`) y tarea vencida.
+- Si no hay evidencia confiable de submissions, la app evita marcar en rojo por inferencia y usa estado neutral (`Expirada`).
 
 ### Exportaciones Workspace
 

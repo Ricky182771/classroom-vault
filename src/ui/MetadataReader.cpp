@@ -138,6 +138,11 @@ AssignmentPreviewData MetadataReader::fromJsonObject(const QJsonObject &root, co
     data.state = root.value(QStringLiteral("state")).toString();
     data.alternateLink = root.value(QStringLiteral("alternateLink")).toString();
     data.syncedAt = root.value(QStringLiteral("syncedAt")).toString();
+    const QJsonObject submission = root.value(QStringLiteral("submission")).toObject();
+    data.submissionState = submission.value(QStringLiteral("state")).toString().trimmed();
+    data.submissionLate = submission.value(QStringLiteral("late")).toBool(false);
+    data.submissionStateReliable =
+        submission.value(QStringLiteral("reliable")).toBool(!data.submissionState.isEmpty());
 
     data.metadataPath = metadataPath.trimmed();
     if (!data.metadataPath.isEmpty()) {

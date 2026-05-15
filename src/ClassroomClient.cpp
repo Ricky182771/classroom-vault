@@ -29,6 +29,37 @@ QString extractErrorMessage(const QByteArray &payload)
     return QString::fromUtf8(payload).trimmed();
 }
 
+int submissionStatePriority(const QString &submissionState)
+{
+    const QString state = submissionState.trimmed().toUpper();
+    if (state == QStringLiteral("RETURNED")) {
+        return 4;
+    }
+    if (state == QStringLiteral("TURNED_IN")) {
+        return 3;
+    }
+    if (state == QStringLiteral("RECLAIMED_BY_STUDENT")) {
+        return 2;
+    }
+    if (state == QStringLiteral("CREATED")) {
+        return 1;
+    }
+    if (state == QStringLiteral("NEW")) {
+        return 0;
+    }
+    return -1;
+}
+
+bool isSubmissionStateReliable(const QString &submissionState)
+{
+    const QString state = submissionState.trimmed().toUpper();
+    return state == QStringLiteral("NEW")
+        || state == QStringLiteral("CREATED")
+        || state == QStringLiteral("TURNED_IN")
+        || state == QStringLiteral("RETURNED")
+        || state == QStringLiteral("RECLAIMED_BY_STUDENT");
+}
+
 } // namespace
 
 ClassroomClient::ClassroomClient(QObject *parent)
@@ -128,9 +159,21 @@ void ClassroomClient::fetchCourseWorkFromSample(const QString &courseId)
         const QJsonObject root = doc.object();
         const QJsonObject courseworkByCourse = root.value(QStringLiteral("courseWork")).toObject();
         const QJsonArray assignments = courseworkByCourse.value(courseId).toArray();
-        const QList<Assignment> parsed = parseCourseWork(courseId, assignments);
-        emit courseWorkFetched(courseId, parsed);
-        emit courseWorkSnapshotFetched(courseId, parsed, true);
+        m_courseWorkAccumulator.insert(courseId, parseCourseWork(courseId, assignments));
+
+        const QJsonObject submissionsByCourse = root.value(QStringLiteral("studentSubmissions")).toObject();
+        const QJsonArray submissionsArray = submissionsByCourse.value(courseId).toArray();
+        QList<QJsonObject> submissions;
+        submissions.reserve(submissionsArray.size());
+        for (const QJsonValue &value : submissionsArray) {
+            if (value.isObject()) {
+                submissions.append(value.toObject());
+            }
+        }
+
+        const bool reliable = submissionsByCourse.contains(courseId);
+        applyStudentSubmissionsToAssignments(courseId, submissions, reliable);
+        finalizeCourseWorkSnapshot(courseId, true, reliable);
     });
 }
 
@@ -160,6 +203,8 @@ void ClassroomClient::fetchCourseWorkFromApi(const QString &courseId)
 
     m_courseWorkAccumulator.remove(courseId);
     m_courseWorkPageCount.insert(courseId, 0);
+    m_studentSubmissionsAccumulator.remove(courseId);
+    m_studentSubmissionsPageCount.insert(courseId, 0);
     fetchCourseWorkPageFromApi(courseId, QString());
 }
 
@@ -183,6 +228,118 @@ void ClassroomClient::fetchCourseWorkPageFromApi(const QString &courseId, const 
     connect(reply, &QNetworkReply::finished, this, &ClassroomClient::onReplyFinished);
 }
 
+void ClassroomClient::fetchStudentSubmissionsFromApi(const QString &courseId)
+{
+    m_studentSubmissionsAccumulator.remove(courseId);
+    m_studentSubmissionsPageCount.insert(courseId, 0);
+    fetchStudentSubmissionsPageFromApi(courseId, QString());
+}
+
+void ClassroomClient::fetchStudentSubmissionsPageFromApi(const QString &courseId, const QString &pageToken)
+{
+    const QString encodedCourseId = QString::fromUtf8(QUrl::toPercentEncoding(courseId));
+    QUrl url(QStringLiteral("https://classroom.googleapis.com/v1/courses/%1/courseWork/-/studentSubmissions").arg(encodedCourseId));
+    if (!pageToken.trimmed().isEmpty()) {
+        QUrlQuery query(url);
+        query.addQueryItem(QStringLiteral("pageToken"), pageToken.trimmed());
+        url.setQuery(query);
+    }
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
+
+    QNetworkReply *reply = m_networkManager.get(request);
+    reply->setProperty("requestType", QStringLiteral("studentSubmissions"));
+    reply->setProperty("courseId", courseId);
+    reply->setProperty("pageToken", pageToken);
+    connect(reply, &QNetworkReply::finished, this, &ClassroomClient::onReplyFinished);
+}
+
+void ClassroomClient::applyStudentSubmissionsToAssignments(
+    const QString &courseId,
+    const QList<QJsonObject> &submissionObjects,
+    bool reliable)
+{
+    QList<Assignment> assignments = m_courseWorkAccumulator.value(courseId);
+    if (assignments.isEmpty()) {
+        return;
+    }
+
+    QHash<QString, QJsonObject> bestSubmissionByCourseWorkId;
+    for (const QJsonObject &submission : submissionObjects) {
+        const QString courseWorkId = submission.value(QStringLiteral("courseWorkId")).toString().trimmed();
+        if (courseWorkId.isEmpty()) {
+            continue;
+        }
+
+        const QJsonObject currentBest = bestSubmissionByCourseWorkId.value(courseWorkId);
+        if (currentBest.isEmpty()) {
+            bestSubmissionByCourseWorkId.insert(courseWorkId, submission);
+            continue;
+        }
+
+        const QString stateCandidate = submission.value(QStringLiteral("state")).toString();
+        const QString stateCurrent = currentBest.value(QStringLiteral("state")).toString();
+        const int priorityCandidate = submissionStatePriority(stateCandidate);
+        const int priorityCurrent = submissionStatePriority(stateCurrent);
+
+        if (priorityCandidate > priorityCurrent) {
+            bestSubmissionByCourseWorkId.insert(courseWorkId, submission);
+            continue;
+        }
+        if (priorityCandidate < priorityCurrent) {
+            continue;
+        }
+
+        const QString updateCandidate = submission.value(QStringLiteral("updateTime")).toString().trimmed();
+        const QString updateCurrent = currentBest.value(QStringLiteral("updateTime")).toString().trimmed();
+        if (updateCandidate > updateCurrent) {
+            bestSubmissionByCourseWorkId.insert(courseWorkId, submission);
+        }
+    }
+
+    for (Assignment &assignment : assignments) {
+        assignment.submissionId.clear();
+        assignment.submissionState.clear();
+        assignment.submissionUpdateTime.clear();
+        assignment.submissionAlternateLink.clear();
+        assignment.submissionLate = false;
+        assignment.submissionStateReliable = false;
+
+        const QJsonObject submission = bestSubmissionByCourseWorkId.value(assignment.id);
+        if (submission.isEmpty()) {
+            continue;
+        }
+
+        assignment.submissionId = submission.value(QStringLiteral("id")).toString().trimmed();
+        assignment.submissionState = submission.value(QStringLiteral("state")).toString().trimmed();
+        assignment.submissionUpdateTime = submission.value(QStringLiteral("updateTime")).toString().trimmed();
+        assignment.submissionAlternateLink = submission.value(QStringLiteral("alternateLink")).toString().trimmed();
+        assignment.submissionLate = submission.value(QStringLiteral("late")).toBool(false);
+        assignment.submissionStateReliable = reliable && isSubmissionStateReliable(assignment.submissionState);
+    }
+
+    m_courseWorkAccumulator.insert(courseId, assignments);
+}
+
+void ClassroomClient::finalizeCourseWorkSnapshot(const QString &courseId, bool fetchComplete, bool submissionsReliable)
+{
+    QList<Assignment> assignments = m_courseWorkAccumulator.value(courseId);
+    if (!submissionsReliable) {
+        for (Assignment &assignment : assignments) {
+            assignment.submissionStateReliable = false;
+        }
+    }
+
+    emit courseWorkFetched(courseId, assignments);
+    emit courseWorkSnapshotFetched(courseId, assignments, fetchComplete);
+
+    m_courseWorkAccumulator.remove(courseId);
+    m_courseWorkPageCount.remove(courseId);
+    m_studentSubmissionsAccumulator.remove(courseId);
+    m_studentSubmissionsPageCount.remove(courseId);
+}
+
 void ClassroomClient::onReplyFinished()
 {
     QNetworkReply *reply = qobject_cast<QNetworkReply *>(sender());
@@ -194,8 +351,11 @@ void ClassroomClient::onReplyFinished()
     const QString courseId = reply->property("courseId").toString();
     const QByteArray payload = reply->readAll();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    const QString context =
-        requestType == QStringLiteral("courseWork") ? QStringLiteral("courseWork:") + courseId : QStringLiteral("courses");
+    const QString context = requestType == QStringLiteral("courseWork")
+        ? QStringLiteral("courseWork:") + courseId
+        : (requestType == QStringLiteral("studentSubmissions")
+               ? QStringLiteral("studentSubmissions:") + courseId
+               : QStringLiteral("courses"));
 
     if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
         QString message = extractErrorMessage(payload);
@@ -214,14 +374,27 @@ void ClassroomClient::onReplyFinished()
             message = QStringLiteral("Error de red. ") + message;
         }
 
-        emit requestFailed(context, httpStatus, message);
-        emit errorOccurred(context, message);
-
         if (requestType == QStringLiteral("courseWork")) {
+            emit requestFailed(context, httpStatus, message);
+            emit errorOccurred(context, message);
             const QList<Assignment> partial = m_courseWorkAccumulator.value(courseId);
             emit courseWorkSnapshotFetched(courseId, partial, false);
             m_courseWorkAccumulator.remove(courseId);
             m_courseWorkPageCount.remove(courseId);
+            m_studentSubmissionsAccumulator.remove(courseId);
+            m_studentSubmissionsPageCount.remove(courseId);
+        } else if (requestType == QStringLiteral("studentSubmissions")) {
+            if (httpStatus == 401) {
+                emit logMessage(QStringLiteral("WARN  Token invalido/expirado al leer submissions (%1). Se omitira estado de entrega en esta sincronizacion.").arg(courseId));
+            } else if (httpStatus == 403) {
+                emit logMessage(QStringLiteral("WARN  No se pudo leer submissions (%1). Verifica scope classroom.student-submissions.me.readonly y reautoriza token.").arg(courseId));
+            } else {
+                emit logMessage(QStringLiteral("WARN  No se pudo leer submissions (%1). Se evitara marcar 'No entregada' sin evidencia.").arg(courseId));
+            }
+            finalizeCourseWorkSnapshot(courseId, true, false);
+        } else {
+            emit requestFailed(context, httpStatus, message);
+            emit errorOccurred(context, message);
         }
 
         reply->deleteLater();
@@ -230,8 +403,13 @@ void ClassroomClient::onReplyFinished()
 
     const QJsonDocument doc = QJsonDocument::fromJson(payload);
     if (!doc.isObject()) {
-        emit requestFailed(context, httpStatus, QStringLiteral("Respuesta JSON invalida de Classroom API."));
-        emit errorOccurred(context, QStringLiteral("Respuesta JSON invalida de Classroom API."));
+        if (requestType == QStringLiteral("studentSubmissions")) {
+            emit logMessage(QStringLiteral("WARN  Respuesta JSON invalida en submissions (%1). Se omitira estado de entrega.").arg(courseId));
+            finalizeCourseWorkSnapshot(courseId, true, false);
+        } else {
+            emit requestFailed(context, httpStatus, QStringLiteral("Respuesta JSON invalida de Classroom API."));
+            emit errorOccurred(context, QStringLiteral("Respuesta JSON invalida de Classroom API."));
+        }
         reply->deleteLater();
         return;
     }
@@ -258,11 +436,27 @@ void ClassroomClient::onReplyFinished()
             return;
         }
 
-        const QList<Assignment> fullAssignments = m_courseWorkAccumulator.value(courseId);
-        emit courseWorkFetched(courseId, fullAssignments);
-        emit courseWorkSnapshotFetched(courseId, fullAssignments, true);
-        m_courseWorkAccumulator.remove(courseId);
-        m_courseWorkPageCount.remove(courseId);
+        fetchStudentSubmissionsFromApi(courseId);
+    } else if (requestType == QStringLiteral("studentSubmissions")) {
+        const QList<QJsonObject> pageSubmissions = parseStudentSubmissions(root.value(QStringLiteral("studentSubmissions")).toArray());
+        QList<QJsonObject> accumulated = m_studentSubmissionsAccumulator.value(courseId);
+        accumulated.append(pageSubmissions);
+        m_studentSubmissionsAccumulator.insert(courseId, accumulated);
+
+        const int pageNo = m_studentSubmissionsPageCount.value(courseId, 0) + 1;
+        m_studentSubmissionsPageCount.insert(courseId, pageNo);
+
+        const QString nextPageToken = root.value(QStringLiteral("nextPageToken")).toString().trimmed();
+        if (!nextPageToken.isEmpty()) {
+            reply->deleteLater();
+            fetchStudentSubmissionsPageFromApi(courseId, nextPageToken);
+            return;
+        }
+
+        const QList<QJsonObject> submissions = m_studentSubmissionsAccumulator.value(courseId);
+        applyStudentSubmissionsToAssignments(courseId, submissions, true);
+        emit logMessage(QStringLiteral("API   Submissions recibidas: %1 (%2)").arg(submissions.size()).arg(courseId));
+        finalizeCourseWorkSnapshot(courseId, true, true);
     }
 
     reply->deleteLater();
@@ -296,6 +490,18 @@ QList<Assignment> ClassroomClient::parseCourseWork(const QString &courseId, cons
     }
 
     return assignments;
+}
+
+QList<QJsonObject> ClassroomClient::parseStudentSubmissions(const QJsonArray &array) const
+{
+    QList<QJsonObject> submissions;
+    submissions.reserve(array.size());
+    for (const QJsonValue &value : array) {
+        if (value.isObject()) {
+            submissions.append(value.toObject());
+        }
+    }
+    return submissions;
 }
 
 Course ClassroomClient::parseCourseObject(const QJsonObject &json) const

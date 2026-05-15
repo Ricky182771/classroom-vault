@@ -33,6 +33,12 @@ struct Assignment {
     QString alternateLink;
     QDate dueDate;
     QTime dueTime;
+    QString submissionId;
+    QString submissionState;
+    QString submissionUpdateTime;
+    QString submissionAlternateLink;
+    bool submissionLate = false;
+    bool submissionStateReliable = false;
     QVector<AssignmentMaterial> materials;
     QJsonObject rawJson;
 };

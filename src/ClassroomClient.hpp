@@ -45,10 +45,16 @@ private:
     QList<Course> parseCourses(const QJsonArray &array) const;
     QList<Assignment> parseCourseWork(const QString &courseId, const QJsonArray &array) const;
     QVector<AssignmentMaterial> parseMaterials(const QJsonArray &array) const;
+    QList<QJsonObject> parseStudentSubmissions(const QJsonArray &array) const;
 
     Course parseCourseObject(const QJsonObject &json) const;
     Assignment parseAssignmentObject(const QString &courseId, const QJsonObject &json) const;
     AssignmentMaterial parseMaterialObject(const QJsonObject &json) const;
+    void applyStudentSubmissionsToAssignments(
+        const QString &courseId,
+        const QList<QJsonObject> &submissionObjects,
+        bool reliable);
+    void finalizeCourseWorkSnapshot(const QString &courseId, bool fetchComplete, bool submissionsReliable);
 
     void fetchCoursesFromSample();
     void fetchCourseWorkFromSample(const QString &courseId);
@@ -56,6 +62,8 @@ private:
     void fetchCoursesFromApi();
     void fetchCourseWorkFromApi(const QString &courseId);
     void fetchCourseWorkPageFromApi(const QString &courseId, const QString &pageToken);
+    void fetchStudentSubmissionsFromApi(const QString &courseId);
+    void fetchStudentSubmissionsPageFromApi(const QString &courseId, const QString &pageToken);
 
     QString m_accessToken;
     bool m_useSampleData = true;
@@ -64,4 +72,6 @@ private:
     QNetworkAccessManager m_networkManager;
     QHash<QString, QList<Assignment>> m_courseWorkAccumulator;
     QHash<QString, int> m_courseWorkPageCount;
+    QHash<QString, QList<QJsonObject>> m_studentSubmissionsAccumulator;
+    QHash<QString, int> m_studentSubmissionsPageCount;
 };

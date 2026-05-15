@@ -10,6 +10,24 @@
 #include <QJsonDocument>
 #include <QSet>
 
+namespace {
+
+bool pathIsInsideBase(const QString &path, const QString &basePath)
+{
+    const QString cleanPath = QDir::cleanPath(path.trimmed());
+    const QString cleanBase = QDir::cleanPath(basePath.trimmed());
+    if (cleanPath.isEmpty() || cleanBase.isEmpty()) {
+        return false;
+    }
+
+    const QString normalizedBase = cleanBase.endsWith(QLatin1Char('/'))
+        ? cleanBase
+        : cleanBase + QLatin1Char('/');
+    return cleanPath == cleanBase || cleanPath.startsWith(normalizedBase);
+}
+
+} // namespace
+
 SyncManager::SyncManager(QObject *parent)
     : QObject(parent)
     , m_syncStateManager()
@@ -107,13 +125,18 @@ QString SyncManager::basePath() const
 
 void SyncManager::setBasePath(const QString &basePath)
 {
-    m_configManager.setBasePath(basePath);
-    m_folderOrganizer.setBasePath(basePath);
+    const QString clean = QDir::cleanPath(basePath.trimmed());
+    m_configManager.setBasePath(clean);
+    m_folderOrganizer.setBasePath(clean);
     if (!m_configManager.save()) {
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar config.json"));
         emitCounters();
+        return;
     }
+
+    logInfo(QStringLiteral("Ruta base cambiada: %1").arg(clean));
+    logInfo(QStringLiteral("Actualizando servicios con nueva ruta base..."));
 }
 
 QString SyncManager::semesterForCourse(const QString &courseId) const
@@ -317,6 +340,14 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
                     assignment.workType = metadata.value(QStringLiteral("workType")).toString();
                     assignment.state = metadata.value(QStringLiteral("state")).toString();
                     assignment.alternateLink = metadata.value(QStringLiteral("alternateLink")).toString();
+                    const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
+                    assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
+                    assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+                    assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+                    assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
+                    assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
+                    assignment.submissionStateReliable =
+                        submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
 
                     const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
                     if (!dueDateObj.isEmpty()) {
@@ -354,6 +385,17 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
 
                     assignment.rawJson = metadata;
                 }
+            }
+
+            if (assignment.submissionState.trimmed().isEmpty()) {
+                const QJsonObject submissionObj = assignmentState.value(QStringLiteral("submission")).toObject();
+                assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
+                assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+                assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+                assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
+                assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
+                assignment.submissionStateReliable =
+                    submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
             }
 
             assignments.append(assignment);
@@ -1095,6 +1137,7 @@ bool SyncManager::ensureCourseAndAssignmentPaths(
     }
 
     const QString semester = semesterForCourse(course.id);
+    const QString configuredBasePath = m_configManager.basePath().trimmed();
     const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
     const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
 
@@ -1102,11 +1145,15 @@ bool SyncManager::ensureCourseAndAssignmentPaths(
     if (!previousCoursePath.isEmpty()
         && QFileInfo::exists(previousCoursePath)
         && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
+        && pathIsInsideBase(previousCoursePath, configuredBasePath)
         && !m_syncStateManager.assignmentIds(course.id).isEmpty()) {
         *coursePath = previousCoursePath;
     }
 
     QString localAssignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id).trimmed();
+    if (!localAssignmentPath.isEmpty() && !pathIsInsideBase(localAssignmentPath, configuredBasePath)) {
+        localAssignmentPath.clear();
+    }
     if (localAssignmentPath.isEmpty() || !QFileInfo::exists(localAssignmentPath)) {
         localAssignmentPath = m_folderOrganizer.createAssignmentFolder(semester, course.name, assignment);
     }
@@ -1339,6 +1386,17 @@ QJsonObject SyncManager::buildMetadata(const Course &course, const Assignment &a
     metadata.insert(QStringLiteral("dueDate"), Utils::dueDateObject(assignment.dueDate));
     metadata.insert(QStringLiteral("dueTime"), Utils::dueTimeObject(assignment.dueTime));
     metadata.insert(QStringLiteral("materials"), Utils::materialsToJsonArray(assignment.materials));
+
+    QJsonObject submission;
+    submission.insert(QStringLiteral("id"), assignment.submissionId);
+    submission.insert(QStringLiteral("courseWorkId"), assignment.id);
+    submission.insert(QStringLiteral("state"), assignment.submissionState);
+    submission.insert(QStringLiteral("late"), assignment.submissionLate);
+    submission.insert(QStringLiteral("updateTime"), assignment.submissionUpdateTime);
+    submission.insert(QStringLiteral("alternateLink"), assignment.submissionAlternateLink);
+    submission.insert(QStringLiteral("reliable"), assignment.submissionStateReliable);
+    metadata.insert(QStringLiteral("submission"), submission);
+
     return metadata;
 }
 
@@ -1387,6 +1445,7 @@ void SyncManager::syncFolders()
     }
 
     m_folderOrganizer.setBasePath(configuredBasePath);
+    emit logMessage(QStringLiteral("SYNC  Usando ruta base: %1").arg(configuredBasePath));
 
     if (!m_syncStateManager.load()) {
         ++m_errorCount;
@@ -1406,6 +1465,7 @@ void SyncManager::syncFolders()
         if (!previousCoursePath.isEmpty()
             && QFileInfo::exists(previousCoursePath)
             && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
+            && pathIsInsideBase(previousCoursePath, configuredBasePath)
             && !m_syncStateManager.assignmentIds(course.id).isEmpty()) {
             coursePath = previousCoursePath;
             logInfo(
@@ -1422,6 +1482,9 @@ void SyncManager::syncFolders()
 
             const bool knownAssignment = m_syncStateManager.hasAssignment(course.id, assignment.id);
             QString assignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id);
+            if (!assignmentPath.trimmed().isEmpty() && !pathIsInsideBase(assignmentPath, configuredBasePath)) {
+                assignmentPath.clear();
+            }
 
             if (assignmentPath.trimmed().isEmpty() || !QFileInfo::exists(assignmentPath)) {
                 if (knownAssignment && !assignmentPath.trimmed().isEmpty()) {

@@ -468,11 +468,21 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
         item.title = Utils::effectiveAssignmentTitle(assignment);
         item.dueDateText = assignment.dueDate.isValid() ? assignment.dueDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("Sin fecha");
         item.stateText = assignment.state;
+        item.submissionState = assignment.submissionState;
+        item.submissionStateReliable = assignment.submissionStateReliable;
+        item.submissionLate = assignment.submissionLate;
         item.classroomUrl = assignment.alternateLink;
 
         const QJsonObject state = m_syncManager->assignmentState(courseId, assignment.id);
         item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
         item.archivedDeleted = m_syncManager->isAssignmentArchivedDeleted(courseId, assignment.id);
+        if (!item.submissionStateReliable && item.submissionState.trimmed().isEmpty()) {
+            const QJsonObject submissionObj = state.value(QStringLiteral("submission")).toObject();
+            item.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+            item.submissionStateReliable =
+                submissionObj.value(QStringLiteral("reliable")).toBool(!item.submissionState.isEmpty());
+            item.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+        }
 
         const QString metadataPath = m_syncManager->assignmentMetadataPath(courseId, assignment.id);
         const bool folderExists = m_syncManager->localAssignmentFolderExists(courseId, assignment.id);
@@ -543,6 +553,11 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
         item.classroomUrl = QString();
         item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
         item.archivedDeleted = true;
+        const QJsonObject submissionObj = state.value(QStringLiteral("submission")).toObject();
+        item.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+        item.submissionStateReliable =
+            submissionObj.value(QStringLiteral("reliable")).toBool(!item.submissionState.isEmpty());
+        item.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
 
         const QString metadataPath = m_syncManager->assignmentMetadataPath(courseId, assignmentId);
         const bool folderExists = m_syncManager->localAssignmentFolderExists(courseId, assignmentId);
@@ -612,6 +627,18 @@ AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId
         if (preview.alternateLink.trimmed().isEmpty() && assignment) {
             preview.alternateLink = assignment->alternateLink;
         }
+        if (!preview.submissionStateReliable && assignment) {
+            preview.submissionState = assignment->submissionState;
+            preview.submissionStateReliable = assignment->submissionStateReliable;
+            preview.submissionLate = assignment->submissionLate;
+        }
+        if (!preview.submissionStateReliable && preview.submissionState.trimmed().isEmpty()) {
+            const QJsonObject submissionObj = state.value(QStringLiteral("submission")).toObject();
+            preview.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+            preview.submissionStateReliable =
+                submissionObj.value(QStringLiteral("reliable")).toBool(!preview.submissionState.isEmpty());
+            preview.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+        }
 
         return preview;
     }
@@ -626,6 +653,16 @@ AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId
     preview.description = assignment ? assignment->description : QString();
     preview.workType = assignment ? assignment->workType : QString();
     preview.state = assignment ? assignment->state : state.value(QStringLiteral("state")).toString();
+    preview.submissionState = assignment ? assignment->submissionState : QString();
+    preview.submissionStateReliable = assignment ? assignment->submissionStateReliable : false;
+    preview.submissionLate = assignment ? assignment->submissionLate : false;
+    if (!preview.submissionStateReliable && preview.submissionState.trimmed().isEmpty()) {
+        const QJsonObject submissionObj = state.value(QStringLiteral("submission")).toObject();
+        preview.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+        preview.submissionStateReliable =
+            submissionObj.value(QStringLiteral("reliable")).toBool(!preview.submissionState.isEmpty());
+        preview.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+    }
     if (preview.archivedDeleted) {
         preview.state = QStringLiteral("Eliminada y archivada");
     }
@@ -768,6 +805,7 @@ void MainWindow::onBrowseBasePath()
 
     m_syncManager->setBasePath(selected);
     appendLog(QStringLiteral("INFO  Ruta base guardada: %1").arg(selected));
+    appendLog(QStringLiteral("INFO  La siguiente sincronizacion usara esta ruta base."));
     refreshPathUi();
     refreshHomeUi();
 }

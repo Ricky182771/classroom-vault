@@ -11,6 +11,7 @@ enum class AssignmentVisualStatus {
     Active,
     Submitted,
     ExpiredSubmitted,
+    ExpiredUnknown,
     ExpiredMissing,
     DeletedArchived,
 };

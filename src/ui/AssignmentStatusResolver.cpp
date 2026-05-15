@@ -23,6 +23,24 @@ bool seemsSubmitted(const QString &stateText)
         || text.contains(QStringLiteral("ENTREGADA"));
 }
 
+QString normalizeSubmissionState(const QString &stateText)
+{
+    return stateText.trimmed().toUpper();
+}
+
+bool isSubmittedState(const QString &submissionState)
+{
+    return submissionState == QStringLiteral("TURNED_IN")
+        || submissionState == QStringLiteral("RETURNED");
+}
+
+bool isMissingSubmissionState(const QString &submissionState)
+{
+    return submissionState == QStringLiteral("NEW")
+        || submissionState == QStringLiteral("CREATED")
+        || submissionState == QStringLiteral("RECLAIMED_BY_STUDENT");
+}
+
 VisualState makeState(AssignmentVisualStatus status)
 {
     switch (status) {
@@ -30,6 +48,8 @@ VisualState makeState(AssignmentVisualStatus status)
         return {status, QStringLiteral("Entregada"), QStringLiteral("#40ff00"), QStringLiteral("#121212")};
     case AssignmentVisualStatus::ExpiredSubmitted:
         return {status, QStringLiteral("Expirada y entregada"), QStringLiteral("#949292"), QStringLiteral("#111111")};
+    case AssignmentVisualStatus::ExpiredUnknown:
+        return {status, QStringLiteral("Expirada"), QStringLiteral("#949292"), QStringLiteral("#111111")};
     case AssignmentVisualStatus::ExpiredMissing:
         return {status, QStringLiteral("No entregada"), QStringLiteral("#ff0d00"), QStringLiteral("#ffffff")};
     case AssignmentVisualStatus::DeletedArchived:
@@ -40,22 +60,36 @@ VisualState makeState(AssignmentVisualStatus status)
     }
 }
 
-AssignmentVisualStatus resolveCore(bool archivedDeleted, const QDate &dueDate, const QString &stateText, const QDate &today)
+AssignmentVisualStatus resolveCore(
+    bool archivedDeleted,
+    const QDate &dueDate,
+    const QString &submissionStateText,
+    bool submissionStateReliable,
+    const QString &legacyStateText,
+    const QDate &today)
 {
     if (archivedDeleted) {
         return AssignmentVisualStatus::DeletedArchived;
     }
 
-    const bool submitted = seemsSubmitted(stateText);
-    if (submitted && dueDate.isValid() && dueDate < today) {
-        return AssignmentVisualStatus::ExpiredSubmitted;
-    }
-    if (submitted) {
-        return AssignmentVisualStatus::Submitted;
+    const bool expired = dueDate.isValid() && dueDate < today;
+    const QString submissionState = normalizeSubmissionState(submissionStateText);
+
+    if (submissionStateReliable) {
+        if (isSubmittedState(submissionState)) {
+            return expired ? AssignmentVisualStatus::ExpiredSubmitted : AssignmentVisualStatus::Submitted;
+        }
+        if (isMissingSubmissionState(submissionState)) {
+            return expired ? AssignmentVisualStatus::ExpiredMissing : AssignmentVisualStatus::Active;
+        }
     }
 
-    if (dueDate.isValid() && dueDate < today) {
-        return AssignmentVisualStatus::ExpiredMissing;
+    if (seemsSubmitted(legacyStateText)) {
+        return expired ? AssignmentVisualStatus::ExpiredSubmitted : AssignmentVisualStatus::Submitted;
+    }
+
+    if (expired) {
+        return AssignmentVisualStatus::ExpiredUnknown;
     }
 
     return AssignmentVisualStatus::Active;
@@ -70,6 +104,8 @@ VisualState resolve(const AssignmentListItemData &item, const QDate &today)
     const AssignmentVisualStatus status = resolveCore(
         item.archivedDeleted,
         parseDueDateText(item.dueDateText),
+        item.submissionState,
+        item.submissionStateReliable,
         item.stateText,
         today);
     return makeState(status);
@@ -80,6 +116,8 @@ VisualState resolve(const AssignmentPreviewData &preview, const QDate &today)
     const AssignmentVisualStatus status = resolveCore(
         preview.archivedDeleted,
         parseDueDateText(preview.dueDateText),
+        preview.submissionState,
+        preview.submissionStateReliable,
         preview.state,
         today);
     return makeState(status);
