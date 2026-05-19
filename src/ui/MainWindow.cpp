@@ -881,13 +881,6 @@ void MainWindow::onLoadSampleData()
     m_syncManager->loadSampleData(samplePath);
 }
 
-void MainWindow::onLoadClassroom()
-{
-    m_runtimeStatus = QStringLiteral("Cargando Classroom...");
-    refreshStatusUi();
-    m_syncManager->fetchFromClassroom();
-}
-
 void MainWindow::onSyncFolders()
 {
     const QString basePath = m_syncManager->basePath().trimmed();
@@ -896,6 +889,7 @@ void MainWindow::onSyncFolders()
         return;
     }
 
+    appendLog(QStringLiteral("INFO  Cargando Classroom como paso inicial de la sincronizacion..."));
     m_runtimeStatus = QStringLiteral("Sincronizando");
     m_syncProgressCurrent = 0;
     m_syncProgressTotal = 0;
@@ -1219,7 +1213,6 @@ void MainWindow::onTopBarAccountRequested()
     QAction *loginAction = menu.addAction(QStringLiteral("Iniciar sesion"));
     QAction *logoutAction = menu.addAction(QStringLiteral("Cerrar sesion"));
     menu.addSeparator();
-    QAction *classroomAction = menu.addAction(QStringLiteral("Cargar Classroom"));
     QAction *rebuildIndexAction = menu.addAction(QStringLiteral("Reconstruir indice local"));
     QAction *sampleAction = menu.addAction(QStringLiteral("Cargar datos de prueba"));
 
@@ -1232,8 +1225,6 @@ void MainWindow::onTopBarAccountRequested()
         onLogin();
     } else if (selected == logoutAction) {
         onLogout();
-    } else if (selected == classroomAction) {
-        onLoadClassroom();
     } else if (selected == rebuildIndexAction) {
         const QMessageBox::StandardButton confirm = QMessageBox::question(
             this,

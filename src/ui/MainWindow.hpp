@@ -40,7 +40,6 @@ private slots:
     void onLogin();
     void onLogout();
     void onLoadSampleData();
-    void onLoadClassroom();
     void onSyncFolders();
 
     void onAuthStatusChanged(const QString &status);
