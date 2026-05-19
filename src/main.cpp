@@ -6,14 +6,20 @@
 #include <QApplication>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QGuiApplication>
+#include <QIcon>
 #include <QTextStream>
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(QIcon::fromTheme(
+        QStringLiteral("classroom-vault"),
+        QIcon(QStringLiteral(":/icons/classroom-vault.svg"))));
     if (!qEnvironmentVariableIsSet("CLASSROOM_VAULT_DISABLE_THEME")) {
         StyleManager::applyDarkTheme(app);
     }
+    QGuiApplication::setDesktopFileName(QStringLiteral("classroom-vault"));
     app.setOrganizationName(QStringLiteral("ClassroomVault"));
     app.setApplicationName(QStringLiteral("ClassroomVault"));
 

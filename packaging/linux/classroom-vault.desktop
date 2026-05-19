@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Classroom Vault
+GenericName=Classroom Backup Tool
+Comment=Archivo historico local para tareas de Google Classroom
+Exec=classroom-vault
+Icon=classroom-vault
+Terminal=false
+Categories=Education;Qt;
+Keywords=Classroom;Google;Tareas;Backup;Respaldo;Escuela;Qt;
+StartupNotify=true

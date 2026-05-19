@@ -2,4 +2,7 @@
   <qresource prefix="/data">
     <file alias="sample_classroom_data.json">../sample_classroom_data.json</file>
   </qresource>
+  <qresource prefix="/icons">
+    <file>icons/classroom-vault.svg</file>
+  </qresource>
 </RCC>

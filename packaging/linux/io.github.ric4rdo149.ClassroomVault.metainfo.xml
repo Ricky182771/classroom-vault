@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.ric4rdo149.ClassroomVault</id>
+  <name>Classroom Vault</name>
+  <summary>Archivo historico local para tareas de Google Classroom</summary>
+  <description>
+    <p>
+      Classroom Vault es una aplicacion de escritorio en C++/Qt6 que ayuda a respaldar tareas,
+      metadata y adjuntos de Google Classroom en una estructura local organizada por semestre,
+      materia y tarea.
+    </p>
+  </description>
+  <launchable type="desktop-id">classroom-vault.desktop</launchable>
+  <categories>
+    <category>Education</category>
+    <category>Utility</category>
+  </categories>
+  <url type="homepage">https://github.com/ric4rdo149/ClassroomVault</url>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>NOASSERTION</project_license>
+</component>

@@ -1,2 +1,11 @@
 /build/
+/build-asan/
+/build-ubsan/
 /WebUI/
+credentials.json
+token.json
+sync_state.json
+config.json
+*.bak
+.cache/
+.classroom_vault_tmp/

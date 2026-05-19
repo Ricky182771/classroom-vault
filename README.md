@@ -61,19 +61,51 @@ Estados locales usados en incrementalidad:
 sudo dnf install qt6-qtbase-devel cmake gcc-c++ ninja-build
 ```
 
-## Compilar
+## Compilar (desarrollo local)
 
 ```bash
-mkdir -p build
-cd build
-cmake .. -G Ninja
-ninja
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 ```
 
-## Ejecutar GUI
+## Ejecutar desde build
 
 ```bash
-./classroom-vault
+./build/classroom-vault
+```
+
+## Instalacion en Fedora/Linux
+
+Instalar en el sistema (binario + desktop entry + icono + metainfo):
+
+```bash
+sudo cmake --install build
+```
+
+Alternativa equivalente:
+
+```bash
+cd build
+sudo ninja install
+```
+
+Despues de instalar:
+
+- Ejecutable disponible en terminal como:
+
+```bash
+classroom-vault
+```
+
+- Entrada de menu: **Classroom Vault** (KDE/GNOME).
+
+## Desinstalacion (opcional)
+
+Si compilaste con Ninja:
+
+```bash
+cd build
+sudo ninja uninstall
 ```
 
 ## Modo CLI
@@ -193,8 +225,15 @@ Ruta base/
 - `~/.config/ClassroomVault/config.json`
 - `~/.config/ClassroomVault/token.json`
 - `~/.config/ClassroomVault/sync_state.json`
+- `~/.cache/ClassroomVault/` (cache temporal y staging)
 
 `token.json` se guarda localmente y no debe subirse al repositorio.
+
+Notas importantes:
+
+- La instalacion **no** incluye `credentials.json`, `token.json`, `sync_state.json` ni otros datos privados del usuario.
+- `credentials.json` debe colocarse manualmente en `~/.config/ClassroomVault/` (o configurarse desde la app, si aplica).
+- Cambiar `CMAKE_INSTALL_PREFIX` permite instalar en `/usr` o rutas personalizadas.
 
 ## Descarga de adjuntos
 
