@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 
 SyncStateManager::SyncStateManager(const QString &statePath)
     : m_statePath(statePath)
@@ -464,4 +465,157 @@ bool SyncStateManager::localMetadataExists(const QString &courseId, const QStrin
 {
     const QString path = assignmentMetadataPath(courseId, assignmentId).trimmed();
     return !path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isFile();
+}
+
+QJsonObject SyncStateManager::publicationObject(const QString &courseId, const QString &publicationId) const
+{
+    const QJsonObject course = courseObject(courseId);
+    const QJsonObject publications = course.value(QStringLiteral("publications")).toObject();
+    return publications.value(publicationId).toObject();
+}
+
+bool SyncStateManager::hasPublication(const QString &courseId, const QString &publicationId) const
+{
+    const QJsonObject publications = courseObject(courseId).value(QStringLiteral("publications")).toObject();
+    return publications.contains(publicationId);
+}
+
+QStringList SyncStateManager::publicationIds(const QString &courseId) const
+{
+    return courseObject(courseId).value(QStringLiteral("publications")).toObject().keys();
+}
+
+QJsonObject SyncStateManager::publicationState(const QString &courseId, const QString &publicationId) const
+{
+    return publicationObject(courseId, publicationId);
+}
+
+QString SyncStateManager::publicationMetadataHash(const QString &courseId, const QString &publicationId) const
+{
+    return publicationObject(courseId, publicationId).value(QStringLiteral("metadataHash")).toString();
+}
+
+QString SyncStateManager::publicationFolderPath(const QString &courseId, const QString &publicationId) const
+{
+    return publicationObject(courseId, publicationId).value(QStringLiteral("folderPath")).toString();
+}
+
+bool SyncStateManager::localPublicationFolderExists(const QString &courseId, const QString &publicationId) const
+{
+    const QString path = publicationFolderPath(courseId, publicationId).trimmed();
+    return !path.isEmpty() && QFileInfo(path).exists() && QFileInfo(path).isDir();
+}
+
+bool SyncStateManager::localPublicationMetadataExists(const QString &courseId, const QString &publicationId) const
+{
+    const QString folderPath = publicationFolderPath(courseId, publicationId).trimmed();
+    if (folderPath.isEmpty()) {
+        return false;
+    }
+    const QString metaPath = QDir(folderPath).filePath(QStringLiteral("metadata.json"));
+    return QFileInfo(metaPath).exists() && QFileInfo(metaPath).isFile();
+}
+
+bool SyncStateManager::isPublicationArchivedDeleted(const QString &courseId, const QString &publicationId) const
+{
+    const QJsonObject entry = publicationObject(courseId, publicationId);
+    if (entry.value(QStringLiteral("isArchivedDeleted")).toBool(false)) {
+        return true;
+    }
+    return entry.value(QStringLiteral("archivalStatus")).toObject()
+                .value(QStringLiteral("status")).toString() == QStringLiteral("deleted_archived");
+}
+
+void SyncStateManager::updatePublication(
+    const QString &courseId,
+    const Publication &publication,
+    const QString &folderPath,
+    const QString &metadataPath,
+    const QJsonObject &metadata)
+{
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+
+    if (!courseEntry.contains(QStringLiteral("publications")) || !courseEntry.value(QStringLiteral("publications")).isObject()) {
+        courseEntry.insert(QStringLiteral("publications"), QJsonObject());
+    }
+
+    QJsonObject publications = courseEntry.value(QStringLiteral("publications")).toObject();
+    QJsonObject entry = publications.value(publication.id).toObject();
+
+    const QString newHash = Utils::sha256Json(metadata);
+    const QString oldHash = entry.value(QStringLiteral("metadataHash")).toString();
+    const QString now = Utils::nowIsoStringUtc();
+
+    entry.insert(QStringLiteral("title"), publication.title);
+    entry.insert(QStringLiteral("kind"), publication.kind == PublicationKind::Announcement
+        ? QStringLiteral("announcement")
+        : QStringLiteral("material"));
+    entry.insert(QStringLiteral("state"), publication.state);
+    entry.insert(QStringLiteral("alternateLink"), publication.alternateLink);
+    entry.insert(QStringLiteral("folderPath"), folderPath);
+    entry.insert(QStringLiteral("metadataPath"), metadataPath);
+    entry.insert(QStringLiteral("metadataHash"), newHash);
+    if (oldHash != newHash || entry.value(QStringLiteral("lastUpdated")).toString().isEmpty()) {
+        entry.insert(QStringLiteral("lastUpdated"), now);
+    }
+    entry.insert(QStringLiteral("lastSeen"), now);
+    entry.remove(QStringLiteral("isArchivedDeleted"));
+    entry.remove(QStringLiteral("archivalStatus"));
+
+    publications.insert(publication.id, entry);
+    courseEntry.insert(QStringLiteral("publications"), publications);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+void SyncStateManager::markPublicationArchivedDeleted(
+    const QString &courseId,
+    const QString &publicationId,
+    const QString &reason)
+{
+    if (courseId.trimmed().isEmpty() || publicationId.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+    QJsonObject publications = courseEntry.value(QStringLiteral("publications")).toObject();
+    QJsonObject entry = publications.value(publicationId).toObject();
+
+    QJsonObject archival;
+    archival.insert(QStringLiteral("status"), QStringLiteral("deleted_archived"));
+    archival.insert(QStringLiteral("detectedAt"), Utils::nowIsoStringUtc());
+    archival.insert(QStringLiteral("reason"), reason);
+
+    entry.insert(QStringLiteral("isArchivedDeleted"), true);
+    entry.insert(QStringLiteral("archivalStatus"), archival);
+    entry.insert(QStringLiteral("lastSeen"), Utils::nowIsoStringUtc());
+
+    publications.insert(publicationId, entry);
+    courseEntry.insert(QStringLiteral("publications"), publications);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
+void SyncStateManager::clearPublicationArchivedDeleted(const QString &courseId, const QString &publicationId)
+{
+    if (courseId.trimmed().isEmpty() || publicationId.trimmed().isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    QJsonObject courseEntry = courses.value(courseId).toObject();
+    QJsonObject publications = courseEntry.value(QStringLiteral("publications")).toObject();
+    QJsonObject entry = publications.value(publicationId).toObject();
+    if (entry.isEmpty()) {
+        return;
+    }
+
+    entry.remove(QStringLiteral("isArchivedDeleted"));
+    entry.remove(QStringLiteral("archivalStatus"));
+    publications.insert(publicationId, entry);
+    courseEntry.insert(QStringLiteral("publications"), publications);
+    courses.insert(courseId, courseEntry);
+    m_root.insert(QStringLiteral("courses"), courses);
 }

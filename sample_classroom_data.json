@@ -105,6 +105,97 @@
       }
     ]
   },
+  "announcements": {
+    "1234567890": [
+      {
+        "id": "ann_p1",
+        "courseId": "1234567890",
+        "text": "Recuerden revisar el repositorio de la clase antes del parcial. Hay ejercicios adicionales disponibles en el Drive.",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/p/1",
+        "creationTime": "2026-05-10T09:00:00Z",
+        "updateTime": "2026-05-10T09:00:00Z"
+      },
+      {
+        "id": "ann_p2",
+        "courseId": "1234567890",
+        "text": "Clase suspendida el viernes 16 de mayo. Recuperaremos la sesión el siguiente lunes.",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/p/2",
+        "creationTime": "2026-05-14T18:30:00Z",
+        "updateTime": "2026-05-14T18:30:00Z",
+        "materials": [
+          {
+            "link": {
+              "title": "Grabacion de clase anterior",
+              "url": "https://example.com/grabacion"
+            }
+          }
+        ]
+      }
+    ],
+    "9876543210": [
+      {
+        "id": "ann_q1",
+        "courseId": "9876543210",
+        "text": "Recordatorio: el examen de induccion matematica es el proximo jueves. Revisen los apuntes de las semanas 1-3.",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/p/1",
+        "creationTime": "2026-05-12T07:45:00Z",
+        "updateTime": "2026-05-12T07:45:00Z"
+      }
+    ]
+  },
+  "courseWorkMaterials": {
+    "1234567890": [
+      {
+        "id": "mat_p1",
+        "courseId": "1234567890",
+        "title": "Slides: Introduccion a recursion",
+        "description": "Presentacion de la unidad 4 sobre recursion y backtracking.",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/m/1",
+        "creationTime": "2026-04-20T10:00:00Z",
+        "updateTime": "2026-04-20T10:00:00Z",
+        "materials": [
+          {
+            "driveFile": {
+              "driveFile": {
+                "id": "drive_slides_p1",
+                "title": "U4_Recursion.pptx",
+                "alternateLink": "https://drive.google.com/file/d/drive_slides_p1/view",
+                "mimeType": "application/vnd.google-apps.presentation"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "9876543210": [
+      {
+        "id": "mat_q1",
+        "courseId": "9876543210",
+        "title": "Tabla de referencia: Logica proposicional",
+        "description": "Tabla de verdad y equivalencias logicas para el parcial.",
+        "state": "PUBLISHED",
+        "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/m/1",
+        "creationTime": "2026-05-01T08:00:00Z",
+        "updateTime": "2026-05-01T08:00:00Z",
+        "materials": [
+          {
+            "driveFile": {
+              "driveFile": {
+                "id": "drive_doc_q1",
+                "title": "Tabla_Logica.docx",
+                "alternateLink": "https://drive.google.com/file/d/drive_doc_q1/view",
+                "mimeType": "application/vnd.google-apps.document"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
   "studentSubmissions": {
     "1234567890": [
       {

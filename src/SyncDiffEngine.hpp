@@ -25,9 +25,24 @@ struct SyncAction {
     QJsonObject localState;
 };
 
+struct PublicationSyncAction {
+    SyncActionType type = SyncActionType::UnchangedAssignment;
+    QString courseId;
+    QString publicationId;
+    QString title;
+    QJsonObject stagedMetadata;
+    QJsonObject localState;
+};
+
 class SyncDiffEngine {
 public:
     QVector<SyncAction> diffCourse(
+        const QString &courseId,
+        const SyncStagingManager &staging,
+        const SyncStateManager &state,
+        bool allowDeletedArchive) const;
+
+    QVector<PublicationSyncAction> diffPublications(
         const QString &courseId,
         const SyncStagingManager &staging,
         const SyncStateManager &state,

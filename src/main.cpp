@@ -26,6 +26,8 @@ int main(int argc, char *argv[])
     qRegisterMetaType<QList<Course>>("QList<Course>");
     qRegisterMetaType<QList<Assignment>>("QList<Assignment>");
     qRegisterMetaType<AssignmentMaterial>("AssignmentMaterial");
+    qRegisterMetaType<Publication>("Publication");
+    qRegisterMetaType<QList<Publication>>("QList<Publication>");
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Classroom Vault / TareaSync"));

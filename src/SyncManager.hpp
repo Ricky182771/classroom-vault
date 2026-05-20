@@ -29,6 +29,7 @@ public:
 
     QList<Course> courses() const;
     QList<Assignment> allAssignments() const;
+    QList<Publication> publicationsForCourse(const QString &courseId) const;
 
     QString basePath() const;
     void setBasePath(const QString &basePath);
@@ -53,6 +54,11 @@ public:
     bool localAssignmentFolderExists(const QString &courseId, const QString &assignmentId) const;
     bool localAssignmentMetadataExists(const QString &courseId, const QString &assignmentId) const;
 
+    QJsonObject publicationState(const QString &courseId, const QString &publicationId) const;
+    QStringList knownPublicationIds(const QString &courseId) const;
+    bool isPublicationArchivedDeleted(const QString &courseId, const QString &publicationId) const;
+    bool localPublicationFolderExists(const QString &courseId, const QString &publicationId) const;
+
     bool restoreLocalStateSnapshot();
     void publishCurrentState();
     bool rebuildLocalIndex();
@@ -72,6 +78,7 @@ public:
 signals:
     void coursesChanged(const QList<Course> &courses);
     void assignmentsChanged(const QList<Assignment> &assignments);
+    void publicationsChanged(const QString &courseId, const QList<Publication> &publications);
     void syncProgress(int current, int total);
     void syncFinished(int newCount, int updatedCount, int unchangedCount, int errorCount);
     void countersChanged(
@@ -92,6 +99,7 @@ private slots:
     void onCoursesFetched(const QList<Course> &courses);
     void onCourseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
     void onCourseWorkSnapshotFetched(const QString &courseId, const QList<Assignment> &courseWork, bool fetchComplete);
+    void onPublicationsSnapshotFetched(const QString &courseId, const QList<Publication> &publications, bool fetchComplete);
     void onClientRequestFailed(const QString &context, int httpStatus, const QString &message);
     void onAttachmentProgress(int current, int total);
     void onAttachmentFinished(int downloaded, int skipped, int errors);
@@ -118,6 +126,7 @@ private:
     void resetSyncOperationState();
     void startSyncAllInternal();
     void startSyncCourseInternal(const QString &courseId);
+    QJsonObject buildPublicationMetadata(const Course &course, const Publication &publication) const;
     void maybeFinalizeStagedSync();
     void finalizeFetchOnly();
     void applyStagedDiffForScope();
@@ -152,9 +161,11 @@ private:
 
     QList<Course> m_courses;
     QHash<QString, QList<Assignment>> m_assignmentsByCourse;
+    QHash<QString, QList<Publication>> m_publicationsByCourse;
     QHash<QString, QString> m_semesterByCourse;
 
     int m_pendingCourseWorkRequests = 0;
+    int m_pendingPublicationFetchRequests = 0;
     bool m_waitingForTokenRefresh = false;
 
     int m_newCount = 0;
@@ -177,5 +188,8 @@ private:
     QSet<QString> m_incompleteCourseFetches;
     QHash<QString, Course> m_stagedCourses;
     QHash<QString, QList<Assignment>> m_stagedAssignmentsByCourse;
+    QHash<QString, QList<Publication>> m_stagedPublicationsByCourse;
+    QSet<QString> m_pendingPublicationCourses;
+    QSet<QString> m_incompletePublicationFetches;
     bool m_stagingSessionActive = false;
 };

@@ -74,6 +74,8 @@ void ConfigManager::loadDefaults()
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.coursework.me.readonly"));
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.student-submissions.me.readonly"));
+    defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.announcements.readonly"));
+    defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly"));
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"));
 
     m_oauth = {
@@ -318,6 +320,12 @@ QStringList ConfigManager::oauthScopes() const
     }
     if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/classroom.student-submissions.me.readonly"))) {
         scopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.student-submissions.me.readonly"));
+    }
+    if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/classroom.announcements.readonly"))) {
+        scopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.announcements.readonly"));
+    }
+    if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly"))) {
+        scopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly"));
     }
     if (!scopes.contains(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"))) {
         scopes.append(QStringLiteral("https://www.googleapis.com/auth/drive.readonly"));

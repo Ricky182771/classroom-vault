@@ -17,12 +17,14 @@ public:
     static QString sanitizeName(const QString &name);
     static QString sanitizeFileName(QString name);
     static QString buildAssignmentFolderName(const Assignment &assignment);
+    static QString buildPublicationFolderName(const Publication &publication);
 
     QString createSemesterFolder(const QString &semester) const;
     QString createCourseFolder(const QString &semester, const QString &courseName) const;
     QString createAssignmentFolder(const QString &semester, const QString &courseName, const Assignment &assignment) const;
+    QString createPublicationFolder(const QString &semester, const QString &courseName, const Publication &publication) const;
 
-    QString resolveFolderConflict(const QString &desiredPath, const QString &assignmentId) const;
+    QString resolveFolderConflict(const QString &desiredPath, const QString &resourceId) const;
 
     bool writeMetadata(const QString &filePath, const QJsonObject &metadata) const;
     bool writeMetadataIfChanged(

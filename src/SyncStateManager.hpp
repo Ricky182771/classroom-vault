@@ -61,6 +61,27 @@ public:
         const QString &assignmentId,
         const QJsonObject &checksumState);
 
+    // Publications
+    bool hasPublication(const QString &courseId, const QString &publicationId) const;
+    QStringList publicationIds(const QString &courseId) const;
+    QJsonObject publicationState(const QString &courseId, const QString &publicationId) const;
+    QString publicationMetadataHash(const QString &courseId, const QString &publicationId) const;
+    QString publicationFolderPath(const QString &courseId, const QString &publicationId) const;
+    bool localPublicationFolderExists(const QString &courseId, const QString &publicationId) const;
+    bool localPublicationMetadataExists(const QString &courseId, const QString &publicationId) const;
+    bool isPublicationArchivedDeleted(const QString &courseId, const QString &publicationId) const;
+    void updatePublication(
+        const QString &courseId,
+        const Publication &publication,
+        const QString &folderPath,
+        const QString &metadataPath,
+        const QJsonObject &metadata);
+    void markPublicationArchivedDeleted(
+        const QString &courseId,
+        const QString &publicationId,
+        const QString &reason);
+    void clearPublicationArchivedDeleted(const QString &courseId, const QString &publicationId);
+
     QString lastSync() const;
     void setLastSync(const QDateTime &dateTime);
 
@@ -74,6 +95,7 @@ private:
 
     QJsonObject courseObject(const QString &courseId) const;
     QJsonObject assignmentObject(const QString &courseId, const QString &assignmentId) const;
+    QJsonObject publicationObject(const QString &courseId, const QString &publicationId) const;
 
     QString m_statePath;
     QJsonObject m_root;

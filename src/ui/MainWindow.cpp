@@ -174,6 +174,9 @@ void MainWindow::connectSignals()
     connect(m_courseDetail, &CourseDetailWidget::syncCourseRequested, this, &MainWindow::onSyncCourseRequested);
     connect(m_courseDetail, &CourseDetailWidget::openCourseFolderRequested, this, &MainWindow::onOpenCourseFolder);
     connect(m_courseDetail, &CourseDetailWidget::openCourseClassroomRequested, this, &MainWindow::onOpenCourseClassroom);
+    connect(m_courseDetail, &CourseDetailWidget::openPublicationFolderRequested, this, &MainWindow::onOpenPublicationFolder);
+    connect(m_courseDetail, &CourseDetailWidget::openPublicationClassroomRequested, this, &MainWindow::onOpenPublicationClassroom);
+    connect(m_courseDetail, &CourseDetailWidget::downloadPublicationAttachmentRequested, this, &MainWindow::onDownloadPublicationAttachment);
 
     connect(m_assignmentDetail, &AssignmentDetailWidget::backRequested, this, &MainWindow::onAssignmentBackRequested);
     connect(m_assignmentDetail, &AssignmentDetailWidget::openClassroomRequested, this, &MainWindow::onOpenAssignmentClassroom);
@@ -187,6 +190,7 @@ void MainWindow::connectSignals()
 
     connect(m_syncManager, &SyncManager::coursesChanged, this, &MainWindow::onCoursesChanged);
     connect(m_syncManager, &SyncManager::assignmentsChanged, this, &MainWindow::onAssignmentsChanged);
+    connect(m_syncManager, &SyncManager::publicationsChanged, this, &MainWindow::onPublicationsChanged);
     connect(m_syncManager, &SyncManager::syncProgress, this, &MainWindow::onSyncProgress);
     connect(m_syncManager, &SyncManager::syncFinished, this, &MainWindow::onSyncFinished);
     connect(m_syncManager, &SyncManager::countersChanged, this, &MainWindow::onCountersChanged);
@@ -608,6 +612,69 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
             return a.dueDateText > b.dueDateText;
         }
         return a.title.toLower() < b.title.toLower();
+    });
+
+    return result;
+}
+
+QVector<PublicationListItemData> MainWindow::buildCoursePublications(const QString &courseId) const
+{
+    QVector<PublicationListItemData> result;
+    QSet<QString> seenIds;
+
+    const QList<Publication> publications = m_syncManager->publicationsForCourse(courseId);
+    for (const Publication &pub : publications) {
+        seenIds.insert(pub.id);
+
+        PublicationListItemData item;
+        item.courseId = courseId;
+        item.publicationId = pub.id;
+        item.kindLabel = (pub.kind == PublicationKind::Announcement)
+            ? QStringLiteral("Aviso")
+            : QStringLiteral("Material");
+        item.title = pub.title.trimmed().isEmpty()
+            ? (pub.text.trimmed().left(80))
+            : pub.title.trimmed();
+        if (item.title.isEmpty()) {
+            item.title = item.kindLabel;
+        }
+        item.textPreview = pub.text.trimmed();
+        item.classroomUrl = pub.alternateLink;
+        item.materials = pub.materials;
+        item.createdAtText = formatIsoDateTime(pub.creationTime);
+
+        const QJsonObject state = m_syncManager->publicationState(courseId, pub.id);
+        item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
+
+        result.append(item);
+    }
+
+    const QStringList knownIds = m_syncManager->knownPublicationIds(courseId);
+    for (const QString &pubId : knownIds) {
+        if (seenIds.contains(pubId)) {
+            continue;
+        }
+        if (!m_syncManager->isPublicationArchivedDeleted(courseId, pubId)) {
+            continue;
+        }
+        const QJsonObject state = m_syncManager->publicationState(courseId, pubId);
+        PublicationListItemData item;
+        item.courseId = courseId;
+        item.publicationId = pubId;
+        item.kindLabel = state.value(QStringLiteral("kind")).toString() == QLatin1String("material")
+            ? QStringLiteral("Material")
+            : QStringLiteral("Aviso");
+        item.title = state.value(QStringLiteral("title")).toString().trimmed();
+        if (item.title.isEmpty()) {
+            item.title = QStringLiteral("Publicación archivada");
+        }
+        item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
+        item.classroomUrl = QString();
+        result.append(item);
+    }
+
+    std::sort(result.begin(), result.end(), [](const PublicationListItemData &a, const PublicationListItemData &b) {
+        return a.createdAtText > b.createdAtText;
     });
 
     return result;
@@ -1150,6 +1217,50 @@ void MainWindow::onOpenAssignmentClassroom(const QString &courseId, const QStrin
     QDesktopServices::openUrl(QUrl(url));
 }
 
+void MainWindow::onOpenPublicationFolder(const QString &courseId, const QString &publicationId)
+{
+    const QString folderPath = m_syncManager->publicationState(courseId, publicationId)
+                                   .value(QStringLiteral("folderPath")).toString().trimmed();
+    if (folderPath.isEmpty()) {
+        appendError(QStringLiteral("Publicacion sin carpeta local."));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(folderPath));
+}
+
+void MainWindow::onOpenPublicationClassroom(const QString &courseId, const QString &publicationId)
+{
+    const QList<Publication> pubs = m_syncManager->publicationsForCourse(courseId);
+    for (const Publication &p : pubs) {
+        if (p.id == publicationId && !p.alternateLink.trimmed().isEmpty()) {
+            QDesktopServices::openUrl(QUrl(p.alternateLink.trimmed()));
+            return;
+        }
+    }
+    appendError(QStringLiteral("Publicacion sin enlace de Classroom."));
+}
+
+void MainWindow::onDownloadPublicationAttachment(const QString &courseId,
+                                                  const QString &publicationId,
+                                                  const QString &url,
+                                                  const QString &title)
+{
+    Q_UNUSED(courseId)
+    Q_UNUSED(publicationId)
+    Q_UNUSED(title)
+    if (!url.trimmed().isEmpty()) {
+        QDesktopServices::openUrl(QUrl(url.trimmed()));
+    }
+}
+
+void MainWindow::onPublicationsChanged(const QString &courseId, const QList<Publication> &publications)
+{
+    if (m_currentPage == ViewPage::CourseDetail && m_currentCourseId == courseId) {
+        m_courseDetail->setPublications(buildCoursePublications(courseId));
+    }
+    Q_UNUSED(publications)
+}
+
 void MainWindow::onAssignmentBackRequested()
 {
     if (m_currentCourseId.trimmed().isEmpty()) {
@@ -1365,6 +1476,7 @@ void MainWindow::refreshCourseUi()
 
     m_courseDetail->setCourse(courseUiById(m_currentCourseId));
     m_courseDetail->setAssignments(buildCourseAssignments(m_currentCourseId));
+    m_courseDetail->setPublications(buildCoursePublications(m_currentCourseId));
     m_courseDetail->setSearchText(m_courseSearchText);
 }
 

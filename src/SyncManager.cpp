@@ -54,6 +54,7 @@ SyncManager::SyncManager(QObject *parent)
 
     connect(&m_classroomClient, &ClassroomClient::coursesFetched, this, &SyncManager::onCoursesFetched);
     connect(&m_classroomClient, &ClassroomClient::courseWorkSnapshotFetched, this, &SyncManager::onCourseWorkSnapshotFetched);
+    connect(&m_classroomClient, &ClassroomClient::publicationsSnapshotFetched, this, &SyncManager::onPublicationsSnapshotFetched);
     connect(&m_classroomClient, &ClassroomClient::requestFailed, this, &SyncManager::onClientRequestFailed);
     connect(&m_classroomClient, &ClassroomClient::logMessage, this, [this](const QString &message) {
         emit logMessage(message);
@@ -116,6 +117,11 @@ QList<Assignment> SyncManager::allAssignments() const
         all.append(m_assignmentsByCourse.value(course.id));
     }
     return all;
+}
+
+QList<Publication> SyncManager::publicationsForCourse(const QString &courseId) const
+{
+    return m_publicationsByCourse.value(courseId);
 }
 
 QString SyncManager::basePath() const
@@ -275,6 +281,26 @@ bool SyncManager::localAssignmentFolderExists(const QString &courseId, const QSt
 bool SyncManager::localAssignmentMetadataExists(const QString &courseId, const QString &assignmentId) const
 {
     return m_syncStateManager.localMetadataExists(courseId, assignmentId);
+}
+
+QJsonObject SyncManager::publicationState(const QString &courseId, const QString &publicationId) const
+{
+    return m_syncStateManager.publicationState(courseId, publicationId);
+}
+
+QStringList SyncManager::knownPublicationIds(const QString &courseId) const
+{
+    return m_syncStateManager.publicationIds(courseId);
+}
+
+bool SyncManager::isPublicationArchivedDeleted(const QString &courseId, const QString &publicationId) const
+{
+    return m_syncStateManager.isPublicationArchivedDeleted(courseId, publicationId);
+}
+
+bool SyncManager::localPublicationFolderExists(const QString &courseId, const QString &publicationId) const
+{
+    return m_syncStateManager.localPublicationFolderExists(courseId, publicationId);
 }
 
 bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
@@ -638,6 +664,9 @@ void SyncManager::resetSyncOperationState()
     m_incompleteCourseFetches.clear();
     m_stagedCourses.clear();
     m_stagedAssignmentsByCourse.clear();
+    m_stagedPublicationsByCourse.clear();
+    m_pendingPublicationCourses.clear();
+    m_incompletePublicationFetches.clear();
     m_stagingSessionActive = false;
     m_syncScopeCourseId.clear();
     if (m_syncOperationMode != SyncOperationMode::FetchOnlyAll) {
@@ -661,6 +690,9 @@ void SyncManager::startSyncAllInternal()
     m_incompleteCourseFetches.clear();
     m_stagedCourses.clear();
     m_stagedAssignmentsByCourse.clear();
+    m_stagedPublicationsByCourse.clear();
+    m_pendingPublicationCourses.clear();
+    m_incompletePublicationFetches.clear();
 
     if (!m_stagingManager.beginSession(QStringLiteral("global"))) {
         ++m_errorCount;
@@ -693,6 +725,9 @@ void SyncManager::startSyncCourseInternal(const QString &courseId)
     m_incompleteCourseFetches.clear();
     m_stagedCourses.clear();
     m_stagedAssignmentsByCourse.clear();
+    m_stagedPublicationsByCourse.clear();
+    m_pendingPublicationCourses = QSet<QString>{courseId};
+    m_incompletePublicationFetches.clear();
 
     if (!m_stagingManager.beginSession(QStringLiteral("course"))) {
         ++m_errorCount;
@@ -711,11 +746,13 @@ void SyncManager::startSyncCourseInternal(const QString &courseId)
     emit logMessage(QStringLiteral("SYNC  Sincronizando materia: %1").arg(course.name.trimmed().isEmpty() ? courseId : course.name));
     emit logMessage(QStringLiteral("STAGE Creando staging de metadata..."));
     m_classroomClient.fetchCourseWork(courseId);
+    m_classroomClient.fetchPublications(courseId);
 }
 
 void SyncManager::startFetchingCourses()
 {
     m_pendingCourseWorkRequests = 0;
+    m_pendingPublicationFetchRequests = 0;
 
     m_newCount = 0;
     m_updatedCount = 0;
@@ -770,6 +807,7 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         for (const Course &course : m_courses) {
             m_scopedCourseIds.append(course.id);
             m_pendingCourseWorkCourses.insert(course.id);
+            m_pendingPublicationCourses.insert(course.id);
             m_stagedCourses.insert(course.id, course);
             m_stagingManager.writeCourse(course, QJsonObject());
         }
@@ -784,11 +822,13 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         for (const Course &course : m_courses) {
             emit logMessage(QStringLiteral("API   Cargando tareas de %1...").arg(course.name.trimmed().isEmpty() ? course.id : course.name));
             m_classroomClient.fetchCourseWork(course.id);
+            m_classroomClient.fetchPublications(course.id);
         }
         return;
     }
 
     m_pendingCourseWorkRequests = m_courses.size();
+    m_pendingPublicationFetchRequests = m_courses.size();
 
     if (m_courses.isEmpty()) {
         logInfo(QStringLiteral("Cursos cargados: 0"));
@@ -802,6 +842,7 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
 
     for (const Course &course : m_courses) {
         m_classroomClient.fetchCourseWork(course.id);
+        m_classroomClient.fetchPublications(course.id);
     }
 }
 
@@ -859,7 +900,7 @@ void SyncManager::onCourseWorkSnapshotFetched(const QString &courseId, const QLi
         if (m_pendingCourseWorkRequests > 0) {
             --m_pendingCourseWorkRequests;
         }
-        if (m_pendingCourseWorkRequests == 0) {
+        if (m_pendingCourseWorkRequests == 0 && m_pendingPublicationFetchRequests == 0) {
             finalizeFetchOnly();
         }
         return;
@@ -869,7 +910,49 @@ void SyncManager::onCourseWorkSnapshotFetched(const QString &courseId, const QLi
     if (m_pendingCourseWorkRequests > 0) {
         --m_pendingCourseWorkRequests;
     }
-    if (m_pendingCourseWorkRequests == 0) {
+    if (m_pendingCourseWorkRequests == 0 && m_pendingPublicationFetchRequests == 0) {
+        finalizeFetchOnly();
+    }
+}
+
+void SyncManager::onPublicationsSnapshotFetched(
+    const QString &courseId,
+    const QList<Publication> &publications,
+    bool fetchComplete)
+{
+    if (m_syncOperationMode == SyncOperationMode::SyncAll || m_syncOperationMode == SyncOperationMode::SyncCourse) {
+        m_stagedPublicationsByCourse.insert(courseId, publications);
+
+        QStringList publicationIds;
+        publicationIds.reserve(publications.size());
+        for (const Publication &pub : publications) {
+            publicationIds.append(pub.id);
+            const Course course = m_stagedCourses.value(courseId, resolveCourseForSync(courseId));
+            const QJsonObject metadata = buildPublicationMetadata(course, pub);
+            m_stagingManager.writePublication(courseId, pub.id, metadata);
+        }
+
+        if (!fetchComplete) {
+            m_incompletePublicationFetches.insert(courseId);
+        }
+
+        m_stagingManager.writeCoursePublicationsManifest(courseId, publicationIds, fetchComplete);
+
+        if (m_pendingPublicationCourses.contains(courseId)) {
+            m_pendingPublicationCourses.remove(courseId);
+        }
+
+        maybeFinalizeStagedSync();
+        return;
+    }
+
+    m_publicationsByCourse.insert(courseId, publications);
+    emit publicationsChanged(courseId, publications);
+
+    if (m_pendingPublicationFetchRequests > 0) {
+        --m_pendingPublicationFetchRequests;
+    }
+    if (m_pendingPublicationFetchRequests == 0 && m_pendingCourseWorkRequests == 0) {
         finalizeFetchOnly();
     }
 }
@@ -912,7 +995,7 @@ void SyncManager::maybeFinalizeStagedSync()
     if (m_syncOperationMode != SyncOperationMode::SyncAll && m_syncOperationMode != SyncOperationMode::SyncCourse) {
         return;
     }
-    if (!m_pendingCourseWorkCourses.isEmpty()) {
+    if (!m_pendingCourseWorkCourses.isEmpty() || !m_pendingPublicationCourses.isEmpty()) {
         return;
     }
 
@@ -1069,10 +1152,79 @@ void SyncManager::applyStagedDiffForScope()
         logErr(QStringLiteral("No se pudo guardar sync_state.json"));
     }
 
+    // --- Apply publication diff ---
+    for (const QString &courseId : std::as_const(m_scopedCourseIds)) {
+        const Course course = m_stagedCourses.value(courseId, resolveCourseForSync(courseId));
+        const bool allowArchivePub = !m_incompletePublicationFetches.contains(courseId)
+            && m_stagingManager.coursePublicationsFetchComplete(courseId);
+
+        const QVector<PublicationSyncAction> pubActions = m_diffEngine.diffPublications(
+            courseId, m_stagingManager, m_syncStateManager, allowArchivePub);
+
+        const QString semester = semesterForCourse(courseId);
+
+        for (const PublicationSyncAction &action : pubActions) {
+            if (action.type == SyncActionType::DeletedArchivedAssignment) {
+                m_syncStateManager.markPublicationArchivedDeleted(
+                    courseId, action.publicationId,
+                    QStringLiteral("Publication no longer returned by Classroom API during successful sync"));
+                continue;
+            }
+
+            // Find Publication in staged data
+            const QList<Publication> stagedPubs = m_stagedPublicationsByCourse.value(courseId);
+            const Publication *pub = nullptr;
+            for (const Publication &p : stagedPubs) {
+                if (p.id == action.publicationId) {
+                    pub = &p;
+                    break;
+                }
+            }
+            if (!pub) {
+                continue;
+            }
+
+            const QString pubFolder = m_folderOrganizer.createPublicationFolder(semester, course.name, *pub);
+            if (pubFolder.isEmpty() || !QFileInfo::exists(pubFolder)) {
+                ++m_errorCount;
+                logErr(QStringLiteral("No se pudo preparar carpeta de publicacion: %1 / %2").arg(course.name, pub->title));
+                continue;
+            }
+
+            const QString metadataPath = QDir(pubFolder).filePath(QStringLiteral("metadata.json"));
+            QJsonObject metadataNoSyncTime = action.stagedMetadata;
+            if (metadataNoSyncTime.isEmpty()) {
+                metadataNoSyncTime = buildPublicationMetadata(course, *pub);
+            }
+
+            const QString newHash = Utils::sha256Json(metadataNoSyncTime);
+            const QString oldHash = m_syncStateManager.publicationMetadataHash(courseId, pub->id);
+
+            QJsonObject metadataToWrite = metadataNoSyncTime;
+            metadataToWrite.insert(QStringLiteral("syncedAt"), Utils::nowIsoStringUtc());
+
+            m_folderOrganizer.writeMetadataIfChanged(metadataPath, metadataToWrite, newHash, oldHash);
+
+            const QString mdPath = QDir(pubFolder).filePath(QStringLiteral("descripcion.md"));
+            if (newHash != oldHash || !QFileInfo::exists(mdPath)) {
+                m_folderOrganizer.writeDescriptionMarkdown(pubFolder, metadataNoSyncTime);
+            }
+
+            m_syncStateManager.updatePublication(courseId, *pub, pubFolder, metadataPath, metadataNoSyncTime);
+        }
+
+        // Emit updated publications for this course
+        const QList<Publication> pubs = m_stagedPublicationsByCourse.value(courseId);
+        m_publicationsByCourse.insert(courseId, pubs);
+        emit publicationsChanged(courseId, pubs);
+    }
+
     if (m_syncOperationMode == SyncOperationMode::SyncAll) {
         m_assignmentsByCourse = m_stagedAssignmentsByCourse;
+        m_publicationsByCourse = m_stagedPublicationsByCourse;
     } else if (m_syncOperationMode == SyncOperationMode::SyncCourse && !m_syncScopeCourseId.isEmpty()) {
         m_assignmentsByCourse.insert(m_syncScopeCourseId, m_stagedAssignmentsByCourse.value(m_syncScopeCourseId));
+        m_publicationsByCourse.insert(m_syncScopeCourseId, m_stagedPublicationsByCourse.value(m_syncScopeCourseId));
         const Course scopedCourse = m_stagedCourses.value(m_syncScopeCourseId, resolveCourseForSync(m_syncScopeCourseId));
         bool found = false;
         for (Course &existing : m_courses) {
@@ -1392,6 +1544,26 @@ void SyncManager::onChecksumLog(const QString &message)
     emit logMessage(message);
 }
 
+QJsonObject SyncManager::buildPublicationMetadata(const Course &course, const Publication &publication) const
+{
+    QJsonObject metadata;
+    metadata.insert(QStringLiteral("resourceType"), QStringLiteral("publication"));
+    metadata.insert(QStringLiteral("resourceId"), publication.id);
+    metadata.insert(QStringLiteral("courseId"), course.id);
+    metadata.insert(QStringLiteral("courseName"), course.name);
+    metadata.insert(QStringLiteral("kind"), publication.kind == PublicationKind::Announcement
+        ? QStringLiteral("announcement")
+        : QStringLiteral("material"));
+    metadata.insert(QStringLiteral("title"), publication.title);
+    metadata.insert(QStringLiteral("description"), publication.text);
+    metadata.insert(QStringLiteral("state"), publication.state);
+    metadata.insert(QStringLiteral("alternateLink"), publication.alternateLink);
+    metadata.insert(QStringLiteral("creationTime"), publication.creationTime);
+    metadata.insert(QStringLiteral("updateTime"), publication.updateTime);
+    metadata.insert(QStringLiteral("materials"), Utils::materialsToJsonArray(publication.materials));
+    return metadata;
+}
+
 QJsonObject SyncManager::buildMetadata(const Course &course, const Assignment &assignment) const
 {
     QJsonObject metadata;
@@ -1589,6 +1761,43 @@ void SyncManager::syncFolders()
                 assignmentPath,
                 metadataPath,
                 metadataNoSyncTime);
+        }
+
+        // Sync publications for this course
+        const QList<Publication> publications = m_publicationsByCourse.value(course.id);
+        for (const Publication &publication : publications) {
+            QString pubPath = m_syncStateManager.publicationFolderPath(course.id, publication.id).trimmed();
+            if (!pubPath.isEmpty() && !pathIsInsideBase(pubPath, configuredBasePath)) {
+                pubPath.clear();
+            }
+
+            if (pubPath.isEmpty() || !QFileInfo::exists(pubPath)) {
+                pubPath = m_folderOrganizer.createPublicationFolder(semester, course.name, publication);
+                if (pubPath.isEmpty() || !QFileInfo::exists(pubPath)) {
+                    ++m_errorCount;
+                    logErr(QStringLiteral("No se pudo crear carpeta de publicacion: %1 / %2").arg(course.name, publication.title));
+                    emitCounters();
+                    continue;
+                }
+                logInfo(QStringLiteral("Carpeta creada: %1").arg(pubPath));
+            }
+
+            const QString pubMetadataPath = QDir(pubPath).filePath(QStringLiteral("metadata.json"));
+            const QJsonObject metadataNst = buildPublicationMetadata(course, publication);
+            const QString newHash = Utils::sha256Json(metadataNst);
+            const QString oldHash = m_syncStateManager.publicationMetadataHash(course.id, publication.id);
+
+            QJsonObject metadataToWrite = metadataNst;
+            metadataToWrite.insert(QStringLiteral("syncedAt"), Utils::nowIsoStringUtc());
+
+            m_folderOrganizer.writeMetadataIfChanged(pubMetadataPath, metadataToWrite, newHash, oldHash);
+
+            const QString mdPath = QDir(pubPath).filePath(QStringLiteral("descripcion.md"));
+            if (newHash != oldHash || !QFileInfo::exists(mdPath)) {
+                m_folderOrganizer.writeDescriptionMarkdown(pubPath, metadataNst);
+            }
+
+            m_syncStateManager.updatePublication(course.id, publication, pubPath, pubMetadataPath, metadataNst);
         }
     }
 

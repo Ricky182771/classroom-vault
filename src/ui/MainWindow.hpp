@@ -72,6 +72,12 @@ private slots:
     void onOpenAssignmentClassroom(const QString &courseId, const QString &assignmentId);
     void onCourseSemesterChanged(const QString &courseId, const QString &semester);
 
+    void onOpenPublicationFolder(const QString &courseId, const QString &publicationId);
+    void onOpenPublicationClassroom(const QString &courseId, const QString &publicationId);
+    void onDownloadPublicationAttachment(const QString &courseId, const QString &publicationId,
+                                         const QString &url, const QString &title);
+    void onPublicationsChanged(const QString &courseId, const QList<Publication> &publications);
+
     void onAssignmentBackRequested();
     void onResyncAssignmentMetadata(const QString &courseId, const QString &assignmentId);
 
@@ -100,6 +106,7 @@ private:
 
     QVector<CourseUiState> buildCourseUiStates() const;
     QVector<AssignmentListItemData> buildCourseAssignments(const QString &courseId) const;
+    QVector<PublicationListItemData> buildCoursePublications(const QString &courseId) const;
     AssignmentPreviewData buildAssignmentPreview(const QString &courseId, const QString &assignmentId) const;
     QVector<ActivityItem> recentActivityItems(int maxItems = 40) const;
 

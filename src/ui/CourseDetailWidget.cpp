@@ -1,7 +1,9 @@
 #include "CourseDetailWidget.hpp"
 
 #include "AssignmentListItemWidget.hpp"
+#include "PublicationListItemWidget.hpp"
 
+#include <QButtonGroup>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -86,6 +88,37 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
 
     headerLayout->addLayout(actions);
 
+    // Section toggle — centered segmented control
+    auto *toggleContainer = new QFrame(headerCard);
+    toggleContainer->setObjectName(QStringLiteral("SectionToggle"));
+    auto *toggleLayout = new QHBoxLayout(toggleContainer);
+    toggleLayout->setContentsMargins(3, 3, 3, 3);
+    toggleLayout->setSpacing(2);
+
+    m_tasksTabButton = new QPushButton(QStringLiteral("Tareas"), toggleContainer);
+    m_tasksTabButton->setCheckable(true);
+    m_tasksTabButton->setChecked(true);
+    m_tasksTabButton->setProperty("sectionTab", QStringLiteral("left"));
+
+    m_publicationsTabButton = new QPushButton(QStringLiteral("Trabajos y publicaciones"), toggleContainer);
+    m_publicationsTabButton->setCheckable(true);
+    m_publicationsTabButton->setChecked(false);
+    m_publicationsTabButton->setProperty("sectionTab", QStringLiteral("right"));
+
+    m_sectionGroup = new QButtonGroup(toggleContainer);
+    m_sectionGroup->setExclusive(true);
+    m_sectionGroup->addButton(m_tasksTabButton, 0);
+    m_sectionGroup->addButton(m_publicationsTabButton, 1);
+
+    toggleLayout->addWidget(m_tasksTabButton);
+    toggleLayout->addWidget(m_publicationsTabButton);
+
+    auto *sectionRow = new QHBoxLayout();
+    sectionRow->addStretch(1);
+    sectionRow->addWidget(toggleContainer);
+    sectionRow->addStretch(1);
+    headerLayout->addLayout(sectionRow);
+
     root->addWidget(headerCard);
 
     m_scrollArea = new QScrollArea(this);
@@ -117,6 +150,11 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
         }
         emit semesterChanged(m_course.id, text.trimmed());
     });
+    connect(m_sectionGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        m_currentSection = (id == 0) ? CourseSection::Tasks : CourseSection::Publications;
+        updateSummaryLabel();
+        refreshList();
+    });
 }
 
 void CourseDetailWidget::setCourse(const CourseUiState &course)
@@ -133,14 +171,7 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
         m_semesterCombo->blockSignals(false);
     }
     m_statusLabel->setText(QStringLiteral("Estado: %1").arg(statusLabel(course.status)));
-    m_summaryLabel->setText(
-        QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5 · Ultima sync %6")
-            .arg(course.backedUpTasks)
-            .arg(course.totalTasks)
-            .arg(course.attachments)
-            .arg(course.pending)
-            .arg(course.errors)
-            .arg(course.lastSync.trimmed().isEmpty() ? QStringLiteral("—") : course.lastSync.trimmed()));
+    updateSummaryLabel();
     m_pathLabel->setText(QStringLiteral("Ruta: %1").arg(course.folderPath.trimmed().isEmpty() ? QStringLiteral("—") : course.folderPath.trimmed()));
 
     m_openFolderButton->setEnabled(!course.folderPath.trimmed().isEmpty());
@@ -150,7 +181,19 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
 void CourseDetailWidget::setAssignments(const QVector<AssignmentListItemData> &assignments)
 {
     m_assignments = assignments;
-    refreshAssignments();
+    if (m_currentSection == CourseSection::Tasks) {
+        refreshList();
+    }
+    updateSummaryLabel();
+}
+
+void CourseDetailWidget::setPublications(const QVector<PublicationListItemData> &publications)
+{
+    m_publications = publications;
+    if (m_currentSection == CourseSection::Publications) {
+        refreshList();
+    }
+    updateSummaryLabel();
 }
 
 void CourseDetailWidget::setSearchText(const QString &text)
@@ -161,10 +204,29 @@ void CourseDetailWidget::setSearchText(const QString &text)
     }
 
     m_searchText = normalized;
-    refreshAssignments();
+    refreshList();
 }
 
-void CourseDetailWidget::refreshAssignments()
+void CourseDetailWidget::updateSummaryLabel()
+{
+    if (m_currentSection == CourseSection::Tasks) {
+        m_summaryLabel->setText(
+            QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5 · Ultima sync %6")
+                .arg(m_course.backedUpTasks)
+                .arg(m_course.totalTasks)
+                .arg(m_course.attachments)
+                .arg(m_course.pending)
+                .arg(m_course.errors)
+                .arg(m_course.lastSync.trimmed().isEmpty() ? QStringLiteral("—") : m_course.lastSync.trimmed()));
+    } else {
+        m_summaryLabel->setText(
+            QStringLiteral("Publicaciones: %1 · Ultima sync %2")
+                .arg(m_publications.size())
+                .arg(m_course.lastSync.trimmed().isEmpty() ? QStringLiteral("—") : m_course.lastSync.trimmed()));
+    }
+}
+
+void CourseDetailWidget::refreshList()
 {
     QLayoutItem *item = nullptr;
     while ((item = m_listLayout->takeAt(0)) != nullptr) {
@@ -175,30 +237,61 @@ void CourseDetailWidget::refreshAssignments()
     }
 
     int visibleCount = 0;
-    for (const AssignmentListItemData &entry : std::as_const(m_assignments)) {
-        if (!m_searchText.isEmpty()) {
-            const QString haystack =
-                (entry.title + QLatin1Char(' ') + entry.descriptionPreview + QLatin1Char(' ') + entry.dueDateText).toLower();
-            if (!haystack.contains(m_searchText)) {
-                continue;
+
+    if (m_currentSection == CourseSection::Tasks) {
+        for (const AssignmentListItemData &entry : std::as_const(m_assignments)) {
+            if (!m_searchText.isEmpty()) {
+                const QString haystack =
+                    (entry.title + QLatin1Char(' ') + entry.descriptionPreview + QLatin1Char(' ') + entry.dueDateText).toLower();
+                if (!haystack.contains(m_searchText)) {
+                    continue;
+                }
             }
+
+            auto *itemWidget = new AssignmentListItemWidget(m_listContainer);
+            itemWidget->setData(entry);
+
+            connect(itemWidget, &AssignmentListItemWidget::selected, this, &CourseDetailWidget::assignmentSelected);
+            connect(itemWidget, &AssignmentListItemWidget::openFolderRequested, this, &CourseDetailWidget::openAssignmentFolderRequested);
+            connect(itemWidget, &AssignmentListItemWidget::openClassroomRequested, this, &CourseDetailWidget::openAssignmentClassroomRequested);
+
+            m_listLayout->addWidget(itemWidget);
+            ++visibleCount;
         }
 
-        auto *itemWidget = new AssignmentListItemWidget(m_listContainer);
-        itemWidget->setData(entry);
+        if (visibleCount == 0) {
+            auto *empty = new QLabel(QStringLiteral("No hay tareas para este filtro."), m_listContainer);
+            empty->setProperty("subtle", true);
+            m_listLayout->addWidget(empty);
+        }
+    } else {
+        for (const PublicationListItemData &entry : std::as_const(m_publications)) {
+            if (!m_searchText.isEmpty()) {
+                const QString haystack = (entry.title + QLatin1Char(' ') + entry.textPreview).toLower();
+                if (!haystack.contains(m_searchText)) {
+                    continue;
+                }
+            }
 
-        connect(itemWidget, &AssignmentListItemWidget::selected, this, &CourseDetailWidget::assignmentSelected);
-        connect(itemWidget, &AssignmentListItemWidget::openFolderRequested, this, &CourseDetailWidget::openAssignmentFolderRequested);
-        connect(itemWidget, &AssignmentListItemWidget::openClassroomRequested, this, &CourseDetailWidget::openAssignmentClassroomRequested);
+            auto *itemWidget = new PublicationListItemWidget(m_listContainer);
+            itemWidget->setData(entry);
 
-        m_listLayout->addWidget(itemWidget);
-        ++visibleCount;
-    }
+            connect(itemWidget, &PublicationListItemWidget::openFolderRequested,
+                    this, &CourseDetailWidget::openPublicationFolderRequested);
+            connect(itemWidget, &PublicationListItemWidget::openClassroomRequested,
+                    this, &CourseDetailWidget::openPublicationClassroomRequested);
+            connect(itemWidget, &PublicationListItemWidget::downloadAttachmentRequested,
+                    this, &CourseDetailWidget::downloadPublicationAttachmentRequested);
 
-    if (visibleCount == 0) {
-        auto *empty = new QLabel(QStringLiteral("No hay tareas para este filtro."), m_listContainer);
-        empty->setProperty("subtle", true);
-        m_listLayout->addWidget(empty);
+            m_listLayout->addWidget(itemWidget);
+            ++visibleCount;
+        }
+
+        if (visibleCount == 0) {
+            auto *empty = new QLabel(QStringLiteral("No hay publicaciones para esta materia."), m_listContainer);
+            empty->setProperty("subtle", true);
+            m_listLayout->addWidget(empty);
+        }
     }
 
     m_listLayout->addStretch(1);

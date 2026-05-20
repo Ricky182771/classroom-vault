@@ -361,7 +361,11 @@ void ClassroomClient::onReplyFinished()
         ? QStringLiteral("courseWork:") + courseId
         : (requestType == QStringLiteral("studentSubmissions")
                ? QStringLiteral("studentSubmissions:") + courseId
-               : QStringLiteral("courses"));
+               : (requestType == QStringLiteral("announcements")
+                      ? QStringLiteral("announcements:") + courseId
+                      : (requestType == QStringLiteral("courseWorkMaterials")
+                             ? QStringLiteral("courseWorkMaterials:") + courseId
+                             : QStringLiteral("courses"))));
 
     if (reply->error() != QNetworkReply::NoError || httpStatus >= 400) {
         QString message = extractErrorMessage(payload);
@@ -398,6 +402,15 @@ void ClassroomClient::onReplyFinished()
                 emit logMessage(QStringLiteral("WARN  No se pudo leer submissions (%1). Se evitara marcar 'No entregada' sin evidencia.").arg(courseId));
             }
             finalizeCourseWorkSnapshot(courseId, true, false);
+        } else if (requestType == QStringLiteral("announcements") || requestType == QStringLiteral("courseWorkMaterials")) {
+            emit logMessage(QStringLiteral("WARN  No se pudo leer publicaciones (%1:%2). Se omitiran.").arg(requestType, courseId));
+            const int pending = m_publicationsPendingSubrequests.value(courseId, 1) - 1;
+            if (pending <= 0) {
+                m_publicationsPendingSubrequests.remove(courseId);
+                finalizePublicationsSnapshot(courseId, false);
+            } else {
+                m_publicationsPendingSubrequests.insert(courseId, pending);
+            }
         } else {
             emit requestFailed(context, httpStatus, message);
             emit errorOccurred(context, message);
@@ -424,6 +437,48 @@ void ClassroomClient::onReplyFinished()
 
     if (requestType == QStringLiteral("courses")) {
         emit coursesFetched(parseCourses(root.value(QStringLiteral("courses")).toArray()));
+    } else if (requestType == QStringLiteral("announcements")) {
+        const QList<Publication> page = parsePublications(courseId, root.value(QStringLiteral("announcements")).toArray(), PublicationKind::Announcement);
+        QList<Publication> accumulated = m_publicationsAccumulator.value(courseId);
+        accumulated.append(page);
+        m_publicationsAccumulator.insert(courseId, accumulated);
+
+        const QString nextPageToken = root.value(QStringLiteral("nextPageToken")).toString().trimmed();
+        if (!nextPageToken.isEmpty()) {
+            reply->deleteLater();
+            fetchAnnouncementsPageFromApi(courseId, nextPageToken);
+            return;
+        }
+
+        emit logMessage(QStringLiteral("API   Anuncios: %1 (%2)").arg(page.size()).arg(courseId));
+        const int pending = m_publicationsPendingSubrequests.value(courseId, 1) - 1;
+        if (pending <= 0) {
+            m_publicationsPendingSubrequests.remove(courseId);
+            finalizePublicationsSnapshot(courseId, m_publicationsFetchComplete.value(courseId, true));
+        } else {
+            m_publicationsPendingSubrequests.insert(courseId, pending);
+        }
+    } else if (requestType == QStringLiteral("courseWorkMaterials")) {
+        const QList<Publication> page = parsePublications(courseId, root.value(QStringLiteral("courseWorkMaterial")).toArray(), PublicationKind::Material);
+        QList<Publication> accumulated = m_publicationsAccumulator.value(courseId);
+        accumulated.append(page);
+        m_publicationsAccumulator.insert(courseId, accumulated);
+
+        const QString nextPageToken = root.value(QStringLiteral("nextPageToken")).toString().trimmed();
+        if (!nextPageToken.isEmpty()) {
+            reply->deleteLater();
+            fetchCourseWorkMaterialsPageFromApi(courseId, nextPageToken);
+            return;
+        }
+
+        emit logMessage(QStringLiteral("API   Materiales: %1 (%2)").arg(page.size()).arg(courseId));
+        const int pending = m_publicationsPendingSubrequests.value(courseId, 1) - 1;
+        if (pending <= 0) {
+            m_publicationsPendingSubrequests.remove(courseId);
+            finalizePublicationsSnapshot(courseId, m_publicationsFetchComplete.value(courseId, true));
+        } else {
+            m_publicationsPendingSubrequests.insert(courseId, pending);
+        }
     } else if (requestType == QStringLiteral("courseWork")) {
         const QList<Assignment> pageAssignments = parseCourseWork(courseId, root.value(QStringLiteral("courseWork")).toArray());
 
@@ -608,4 +663,153 @@ AssignmentMaterial ClassroomClient::parseMaterialObject(const QJsonObject &json)
     }
 
     return material;
+}
+
+void ClassroomClient::fetchPublications(const QString &courseId)
+{
+    if (m_useSampleData) {
+        fetchPublicationsFromSample(courseId);
+    } else {
+        m_publicationsAccumulator.remove(courseId);
+        m_publicationsFetchComplete.insert(courseId, true);
+        m_publicationsPendingSubrequests.insert(courseId, 2);
+        fetchAnnouncementsPageFromApi(courseId, QString());
+        fetchCourseWorkMaterialsPageFromApi(courseId, QString());
+    }
+}
+
+void ClassroomClient::fetchPublicationsFromSample(const QString &courseId)
+{
+    QTimer::singleShot(0, this, [this, courseId]() {
+        const QJsonDocument doc = loadSampleDocument();
+        if (!doc.isObject()) {
+            emit publicationsSnapshotFetched(courseId, {}, false);
+            return;
+        }
+
+        const QJsonObject root = doc.object();
+        QList<Publication> publications;
+
+        const QJsonObject announcementsByCourse = root.value(QStringLiteral("announcements")).toObject();
+        const QJsonArray announcementsArray = announcementsByCourse.value(courseId).toArray();
+        publications.append(parsePublications(courseId, announcementsArray, PublicationKind::Announcement));
+
+        const QJsonObject materialsByCourse = root.value(QStringLiteral("courseWorkMaterials")).toObject();
+        const QJsonArray materialsArray = materialsByCourse.value(courseId).toArray();
+        publications.append(parsePublications(courseId, materialsArray, PublicationKind::Material));
+
+        emit publicationsSnapshotFetched(courseId, publications, true);
+    });
+}
+
+void ClassroomClient::fetchAnnouncementsPageFromApi(const QString &courseId, const QString &pageToken)
+{
+    if (m_accessToken.isEmpty()) {
+        const int pending = m_publicationsPendingSubrequests.value(courseId, 1) - 1;
+        if (pending <= 0) {
+            m_publicationsPendingSubrequests.remove(courseId);
+            finalizePublicationsSnapshot(courseId, false);
+        } else {
+            m_publicationsPendingSubrequests.insert(courseId, pending);
+        }
+        return;
+    }
+
+    const QString encodedCourseId = QString::fromUtf8(QUrl::toPercentEncoding(courseId));
+    QUrl url(QStringLiteral("https://classroom.googleapis.com/v1/courses/%1/announcements").arg(encodedCourseId));
+    if (!pageToken.trimmed().isEmpty()) {
+        QUrlQuery query(url);
+        query.addQueryItem(QStringLiteral("pageToken"), pageToken.trimmed());
+        url.setQuery(query);
+    }
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
+
+    QNetworkReply *reply = m_networkManager.get(request);
+    reply->setProperty("requestType", QStringLiteral("announcements"));
+    reply->setProperty("courseId", courseId);
+    connect(reply, &QNetworkReply::finished, this, &ClassroomClient::onReplyFinished);
+}
+
+void ClassroomClient::fetchCourseWorkMaterialsPageFromApi(const QString &courseId, const QString &pageToken)
+{
+    if (m_accessToken.isEmpty()) {
+        const int pending = m_publicationsPendingSubrequests.value(courseId, 1) - 1;
+        if (pending <= 0) {
+            m_publicationsPendingSubrequests.remove(courseId);
+            finalizePublicationsSnapshot(courseId, false);
+        } else {
+            m_publicationsPendingSubrequests.insert(courseId, pending);
+        }
+        return;
+    }
+
+    const QString encodedCourseId = QString::fromUtf8(QUrl::toPercentEncoding(courseId));
+    QUrl url(QStringLiteral("https://classroom.googleapis.com/v1/courses/%1/courseWorkMaterials").arg(encodedCourseId));
+    if (!pageToken.trimmed().isEmpty()) {
+        QUrlQuery query(url);
+        query.addQueryItem(QStringLiteral("pageToken"), pageToken.trimmed());
+        url.setQuery(query);
+    }
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(m_accessToken).toUtf8());
+
+    QNetworkReply *reply = m_networkManager.get(request);
+    reply->setProperty("requestType", QStringLiteral("courseWorkMaterials"));
+    reply->setProperty("courseId", courseId);
+    connect(reply, &QNetworkReply::finished, this, &ClassroomClient::onReplyFinished);
+}
+
+QList<Publication> ClassroomClient::parsePublications(
+    const QString &courseId,
+    const QJsonArray &array,
+    PublicationKind kind) const
+{
+    QList<Publication> publications;
+    publications.reserve(array.size());
+    for (const QJsonValue &value : array) {
+        if (!value.isObject()) {
+            continue;
+        }
+        publications.append(parsePublicationObject(courseId, value.toObject(), kind));
+    }
+    return publications;
+}
+
+Publication ClassroomClient::parsePublicationObject(
+    const QString &courseId,
+    const QJsonObject &json,
+    PublicationKind kind) const
+{
+    Publication pub;
+    pub.id = json.value(QStringLiteral("id")).toString();
+    pub.courseId = courseId;
+    pub.kind = kind;
+    pub.state = json.value(QStringLiteral("state")).toString();
+    pub.alternateLink = json.value(QStringLiteral("alternateLink")).toString();
+    pub.creationTime = json.value(QStringLiteral("creationTime")).toString();
+    pub.updateTime = json.value(QStringLiteral("updateTime")).toString();
+    pub.materials = parseMaterials(json.value(QStringLiteral("materials")).toArray());
+    pub.rawJson = json;
+
+    if (kind == PublicationKind::Announcement) {
+        pub.text = json.value(QStringLiteral("text")).toString();
+        const QString preview = pub.text.trimmed().left(60).simplified();
+        pub.title = preview.isEmpty() ? QStringLiteral("Anuncio") : preview;
+    } else {
+        pub.title = json.value(QStringLiteral("title")).toString();
+        pub.text = json.value(QStringLiteral("description")).toString();
+    }
+
+    return pub;
+}
+
+void ClassroomClient::finalizePublicationsSnapshot(const QString &courseId, bool fetchComplete)
+{
+    const QList<Publication> publications = m_publicationsAccumulator.value(courseId);
+    m_publicationsAccumulator.remove(courseId);
+    m_publicationsFetchComplete.remove(courseId);
+    emit publicationsSnapshotFetched(courseId, publications, fetchComplete);
 }

@@ -61,6 +61,23 @@ QString FolderOrganizer::buildAssignmentFolderName(const Assignment &assignment)
     return sanitizeFileName(Utils::assignmentFolderLabel(assignment));
 }
 
+QString FolderOrganizer::buildPublicationFolderName(const Publication &publication)
+{
+    const QString prefix = (publication.kind == PublicationKind::Announcement)
+        ? QStringLiteral("Aviso")
+        : QStringLiteral("Material");
+
+    const QString titlePart = publication.title.trimmed().isEmpty()
+        ? publication.text.trimmed().left(60).simplified()
+        : publication.title.trimmed();
+
+    const QString label = titlePart.isEmpty()
+        ? prefix
+        : (prefix + QStringLiteral(" - ") + titlePart);
+
+    return sanitizeFileName(label);
+}
+
 bool FolderOrganizer::ensureDir(const QString &path) const
 {
     QDir dir;
@@ -100,7 +117,12 @@ QString FolderOrganizer::metadataAssignmentId(const QString &assignmentDir) cons
         return QString();
     }
 
-    return doc.object().value(QStringLiteral("assignmentId")).toString();
+    const QJsonObject obj = doc.object();
+    const QString resourceId = obj.value(QStringLiteral("resourceId")).toString();
+    if (!resourceId.isEmpty()) {
+        return resourceId;
+    }
+    return obj.value(QStringLiteral("assignmentId")).toString();
 }
 
 QString FolderOrganizer::resolveFolderConflict(const QString &desiredPath, const QString &assignmentId) const
@@ -147,6 +169,21 @@ QString FolderOrganizer::createAssignmentFolder(
     const QString assignmentFolderName = buildAssignmentFolderName(assignment);
     const QString desiredPath = QDir(coursePath).filePath(assignmentFolderName);
     const QString finalPath = resolveFolderConflict(desiredPath, assignment.id);
+    ensureDir(finalPath);
+    return finalPath;
+}
+
+QString FolderOrganizer::createPublicationFolder(
+    const QString &semester,
+    const QString &courseName,
+    const Publication &publication) const
+{
+    const QString coursePath = createCourseFolder(semester, courseName);
+    const QString publicationsRoot = QDir(coursePath).filePath(QStringLiteral("_Publicaciones"));
+    ensureDir(publicationsRoot);
+    const QString folderName = buildPublicationFolderName(publication);
+    const QString desiredPath = QDir(publicationsRoot).filePath(folderName);
+    const QString finalPath = resolveFolderConflict(desiredPath, publication.id);
     ensureDir(finalPath);
     return finalPath;
 }

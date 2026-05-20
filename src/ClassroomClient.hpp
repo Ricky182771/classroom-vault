@@ -26,11 +26,13 @@ public:
 
     void fetchCourses();
     void fetchCourseWork(const QString &courseId);
+    void fetchPublications(const QString &courseId);
 
 signals:
     void coursesFetched(const QList<Course> &courses);
     void courseWorkFetched(const QString &courseId, const QList<Assignment> &courseWork);
     void courseWorkSnapshotFetched(const QString &courseId, const QList<Assignment> &courseWork, bool fetchComplete);
+    void publicationsSnapshotFetched(const QString &courseId, const QList<Publication> &publications, bool fetchComplete);
     void errorOccurred(const QString &operation, const QString &message);
     void requestFailed(const QString &context, int httpStatus, const QString &errorMessage);
     void tokenInvalid();
@@ -46,24 +48,30 @@ private:
     QList<Assignment> parseCourseWork(const QString &courseId, const QJsonArray &array) const;
     QVector<AssignmentMaterial> parseMaterials(const QJsonArray &array) const;
     QList<QJsonObject> parseStudentSubmissions(const QJsonArray &array) const;
+    QList<Publication> parsePublications(const QString &courseId, const QJsonArray &array, PublicationKind kind) const;
 
     Course parseCourseObject(const QJsonObject &json) const;
     Assignment parseAssignmentObject(const QString &courseId, const QJsonObject &json) const;
     AssignmentMaterial parseMaterialObject(const QJsonObject &json) const;
+    Publication parsePublicationObject(const QString &courseId, const QJsonObject &json, PublicationKind kind) const;
     void applyStudentSubmissionsToAssignments(
         const QString &courseId,
         const QList<QJsonObject> &submissionObjects,
         bool reliable);
     void finalizeCourseWorkSnapshot(const QString &courseId, bool fetchComplete, bool submissionsReliable);
+    void finalizePublicationsSnapshot(const QString &courseId, bool fetchComplete);
 
     void fetchCoursesFromSample();
     void fetchCourseWorkFromSample(const QString &courseId);
+    void fetchPublicationsFromSample(const QString &courseId);
 
     void fetchCoursesFromApi();
     void fetchCourseWorkFromApi(const QString &courseId);
     void fetchCourseWorkPageFromApi(const QString &courseId, const QString &pageToken);
     void fetchStudentSubmissionsFromApi(const QString &courseId);
     void fetchStudentSubmissionsPageFromApi(const QString &courseId, const QString &pageToken);
+    void fetchAnnouncementsPageFromApi(const QString &courseId, const QString &pageToken);
+    void fetchCourseWorkMaterialsPageFromApi(const QString &courseId, const QString &pageToken);
 
     QString m_accessToken;
     bool m_useSampleData = true;
@@ -74,4 +82,8 @@ private:
     QHash<QString, int> m_courseWorkPageCount;
     QHash<QString, QList<QJsonObject>> m_studentSubmissionsAccumulator;
     QHash<QString, int> m_studentSubmissionsPageCount;
+
+    QHash<QString, QList<Publication>> m_publicationsAccumulator;
+    QHash<QString, int> m_publicationsPendingSubrequests;
+    QHash<QString, bool> m_publicationsFetchComplete;
 };

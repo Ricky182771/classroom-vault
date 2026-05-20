@@ -219,6 +219,35 @@ QLabel[status="error"] {
 QLabel[status="idle"] {
     color: #9AA0AE;
 }
+QFrame#SectionToggle {
+    background: #1A1B20;
+    border: 1px solid #2F313A;
+    border-radius: 10px;
+}
+QPushButton[sectionTab="left"],
+QPushButton[sectionTab="right"] {
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    padding: 6px 18px;
+    font-weight: 600;
+    color: #B8BCC7;
+}
+QPushButton[sectionTab="left"]:checked,
+QPushButton[sectionTab="right"]:checked {
+    background: #5B5CF6;
+    color: #FFFFFF;
+    border: 0;
+}
+QPushButton[sectionTab="left"]:hover:!checked,
+QPushButton[sectionTab="right"]:hover:!checked {
+    background: rgba(255,255,255,0.06);
+    color: #F1F1F1;
+}
+QPushButton[sectionTab="left"]:checked:hover,
+QPushButton[sectionTab="right"]:checked:hover {
+    background: #6B6CF8;
+}
 )QSS");
 }
 

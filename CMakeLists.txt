@@ -51,6 +51,8 @@ qt_add_executable(classroom-vault
     src/ui/CourseDetailWidget.cpp
     src/ui/AssignmentListItemWidget.hpp
     src/ui/AssignmentListItemWidget.cpp
+    src/ui/PublicationListItemWidget.hpp
+    src/ui/PublicationListItemWidget.cpp
     src/ui/AssignmentStatusResolver.hpp
     src/ui/AssignmentStatusResolver.cpp
     src/ui/AssignmentDetailWidget.hpp

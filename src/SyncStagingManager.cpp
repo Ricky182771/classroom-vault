@@ -136,6 +136,50 @@ bool SyncStagingManager::writeGlobalManifest(
     return writeJsonFile(QDir(m_sessionPath).filePath(QStringLiteral("sync_manifest.json")), manifest);
 }
 
+bool SyncStagingManager::writePublication(
+    const QString &courseId,
+    const QString &publicationId,
+    const QJsonObject &metadata)
+{
+    if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty() || publicationId.trimmed().isEmpty()) {
+        return false;
+    }
+
+    const QString pubDirPath = QDir(courseDirPath(courseId)).filePath(QStringLiteral("publications"));
+    QDir dir;
+    if (!dir.exists(pubDirPath) && !dir.mkpath(pubDirPath)) {
+        return false;
+    }
+
+    return writeJsonFile(
+        QDir(pubDirPath).filePath(publicationId + QStringLiteral(".json")),
+        metadata);
+}
+
+bool SyncStagingManager::writeCoursePublicationsManifest(
+    const QString &courseId,
+    const QStringList &publicationIds,
+    bool fetchComplete)
+{
+    if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty()) {
+        return false;
+    }
+
+    QJsonArray idsArray;
+    for (const QString &id : publicationIds) {
+        idsArray.append(id);
+    }
+
+    QJsonObject manifest;
+    manifest.insert(QStringLiteral("fetchStatus"), fetchComplete ? QStringLiteral("complete") : QStringLiteral("incomplete"));
+    manifest.insert(QStringLiteral("publicationCount"), publicationIds.size());
+    manifest.insert(QStringLiteral("publications"), idsArray);
+
+    return writeJsonFile(
+        QDir(courseDirPath(courseId)).filePath(QStringLiteral("publications_manifest.json")),
+        manifest);
+}
+
 QJsonObject SyncStagingManager::readAssignmentMetadata(
     const QString &courseId,
     const QString &assignmentId) const
@@ -147,6 +191,19 @@ QJsonObject SyncStagingManager::readAssignmentMetadata(
     return readJsonFile(
         QDir(courseDirPath(courseId))
             .filePath(QStringLiteral("assignments/%1.json").arg(assignmentId)));
+}
+
+QJsonObject SyncStagingManager::readPublicationMetadata(
+    const QString &courseId,
+    const QString &publicationId) const
+{
+    if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty() || publicationId.trimmed().isEmpty()) {
+        return QJsonObject();
+    }
+
+    return readJsonFile(
+        QDir(courseDirPath(courseId))
+            .filePath(QStringLiteral("publications/%1.json").arg(publicationId)));
 }
 
 QStringList SyncStagingManager::stagedAssignmentIds(const QString &courseId) const
@@ -168,6 +225,25 @@ QStringList SyncStagingManager::stagedAssignmentIds(const QString &courseId) con
     return ids;
 }
 
+QStringList SyncStagingManager::stagedPublicationIds(const QString &courseId) const
+{
+    if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty()) {
+        return {};
+    }
+
+    const QJsonObject manifest = readJsonFile(QDir(courseDirPath(courseId)).filePath(QStringLiteral("publications_manifest.json")));
+    const QJsonArray idsArray = manifest.value(QStringLiteral("publications")).toArray();
+    QStringList ids;
+    ids.reserve(idsArray.size());
+    for (const QJsonValue &value : idsArray) {
+        const QString id = value.toString().trimmed();
+        if (!id.isEmpty()) {
+            ids.append(id);
+        }
+    }
+    return ids;
+}
+
 bool SyncStagingManager::courseFetchComplete(const QString &courseId) const
 {
     if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty()) {
@@ -175,6 +251,16 @@ bool SyncStagingManager::courseFetchComplete(const QString &courseId) const
     }
 
     const QJsonObject manifest = readJsonFile(QDir(courseDirPath(courseId)).filePath(QStringLiteral("manifest.json")));
+    return manifest.value(QStringLiteral("fetchStatus")).toString() == QStringLiteral("complete");
+}
+
+bool SyncStagingManager::coursePublicationsFetchComplete(const QString &courseId) const
+{
+    if (m_sessionPath.isEmpty() || courseId.trimmed().isEmpty()) {
+        return false;
+    }
+
+    const QJsonObject manifest = readJsonFile(QDir(courseDirPath(courseId)).filePath(QStringLiteral("publications_manifest.json")));
     return manifest.value(QStringLiteral("fetchStatus")).toString() == QStringLiteral("complete");
 }
 

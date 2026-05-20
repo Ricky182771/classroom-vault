@@ -21,6 +21,10 @@ public:
         const QString &courseId,
         const QString &assignmentId,
         const QJsonObject &metadata);
+    bool writePublication(
+        const QString &courseId,
+        const QString &publicationId,
+        const QJsonObject &metadata);
 
     bool writeCourseManifest(
         const QString &courseId,
@@ -28,6 +32,10 @@ public:
         const QStringList &assignmentIds,
         bool fetchComplete,
         const QString &errorMessage = QString());
+    bool writeCoursePublicationsManifest(
+        const QString &courseId,
+        const QStringList &publicationIds,
+        bool fetchComplete);
 
     bool writeGlobalManifest(
         const QStringList &courseIds,
@@ -37,9 +45,14 @@ public:
     QJsonObject readAssignmentMetadata(
         const QString &courseId,
         const QString &assignmentId) const;
+    QJsonObject readPublicationMetadata(
+        const QString &courseId,
+        const QString &publicationId) const;
 
     QStringList stagedAssignmentIds(const QString &courseId) const;
+    QStringList stagedPublicationIds(const QString &courseId) const;
     bool courseFetchComplete(const QString &courseId) const;
+    bool coursePublicationsFetchComplete(const QString &courseId) const;
 
     void cleanup();
     void preserveForDebug();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Models.hpp"
+
 #include <QJsonObject>
 #include <QString>
 #include <QVector>
@@ -56,6 +58,23 @@ struct AttachmentRowData {
     QString status;
     QString size;
     QString localPath;
+};
+
+enum class CourseSection {
+    Tasks,
+    Publications
+};
+
+struct PublicationListItemData {
+    QString courseId;
+    QString publicationId;
+    QString title;
+    QString kindLabel;
+    QString textPreview;
+    QString createdAtText;
+    QString folderPath;
+    QString classroomUrl;
+    QVector<AssignmentMaterial> materials;
 };
 
 struct AssignmentListItemData {

@@ -12,6 +12,7 @@ class QVBoxLayout;
 class QScrollArea;
 class AssignmentListItemWidget;
 class QComboBox;
+class QButtonGroup;
 
 class CourseDetailWidget : public QWidget {
     Q_OBJECT
@@ -21,6 +22,7 @@ public:
 
     void setCourse(const CourseUiState &course);
     void setAssignments(const QVector<AssignmentListItemData> &assignments);
+    void setPublications(const QVector<PublicationListItemData> &publications);
     void setSearchText(const QString &text);
 
 signals:
@@ -29,16 +31,24 @@ signals:
     void openAssignmentFolderRequested(const QString &courseId, const QString &assignmentId);
     void openAssignmentClassroomRequested(const QString &courseId, const QString &assignmentId);
 
+    void openPublicationFolderRequested(const QString &courseId, const QString &publicationId);
+    void openPublicationClassroomRequested(const QString &courseId, const QString &publicationId);
+    void downloadPublicationAttachmentRequested(const QString &courseId, const QString &publicationId,
+                                                const QString &url, const QString &title);
+
     void syncCourseRequested(const QString &courseId);
     void openCourseFolderRequested(const QString &courseId);
     void openCourseClassroomRequested(const QString &courseId);
     void semesterChanged(const QString &courseId, const QString &semester);
 
 private:
-    void refreshAssignments();
+    void refreshList();
+    void updateSummaryLabel();
 
+    CourseSection m_currentSection = CourseSection::Tasks;
     CourseUiState m_course;
     QVector<AssignmentListItemData> m_assignments;
+    QVector<PublicationListItemData> m_publications;
     QString m_searchText;
 
     QLabel *m_titleLabel = nullptr;
@@ -52,6 +62,10 @@ private:
     QPushButton *m_syncButton = nullptr;
     QPushButton *m_openFolderButton = nullptr;
     QPushButton *m_openClassroomButton = nullptr;
+
+    QPushButton *m_tasksTabButton = nullptr;
+    QPushButton *m_publicationsTabButton = nullptr;
+    QButtonGroup *m_sectionGroup = nullptr;
 
     QScrollArea *m_scrollArea = nullptr;
     QWidget *m_listContainer = nullptr;

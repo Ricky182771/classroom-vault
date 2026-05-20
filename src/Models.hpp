@@ -49,3 +49,25 @@ struct Assignment {
 Q_DECLARE_METATYPE(Course)
 Q_DECLARE_METATYPE(Assignment)
 Q_DECLARE_METATYPE(AssignmentMaterial)
+
+enum class PublicationKind {
+    Announcement,
+    Material
+};
+
+struct Publication {
+    QString id;
+    QString courseId;
+    QString title;
+    QString text;
+    PublicationKind kind = PublicationKind::Announcement;
+    QString state;
+    QString alternateLink;
+    QString creationTime;
+    QString updateTime;
+    QVector<AssignmentMaterial> materials;
+    QJsonObject rawJson;
+};
+
+Q_DECLARE_METATYPE(Publication)
+Q_DECLARE_METATYPE(QList<Publication>)
