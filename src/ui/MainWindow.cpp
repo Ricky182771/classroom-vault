@@ -599,6 +599,14 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
     }
 
     std::sort(result.begin(), result.end(), [](const AssignmentListItemData &a, const AssignmentListItemData &b) {
+        const bool aHasDate = (a.dueDateText != QLatin1String("Sin fecha") && !a.dueDateText.isEmpty());
+        const bool bHasDate = (b.dueDateText != QLatin1String("Sin fecha") && !b.dueDateText.isEmpty());
+        if (aHasDate != bHasDate) {
+            return aHasDate;
+        }
+        if (aHasDate && bHasDate) {
+            return a.dueDateText > b.dueDateText;
+        }
         return a.title.toLower() < b.title.toLower();
     });
 

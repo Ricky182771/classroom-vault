@@ -1015,6 +1015,11 @@ void SyncManager::applyStagedDiffForScope()
             const bool metadataWritten = m_folderOrganizer.writeMetadataIfChanged(metadataPath, metadataToWrite, newHash, oldHash);
             const bool metadataExists = QFileInfo::exists(metadataPath);
 
+            const QString mdPath = QDir(assignmentPath).filePath(QStringLiteral("descripcion.md"));
+            if (metadataWritten || !QFileInfo::exists(mdPath)) {
+                m_folderOrganizer.writeDescriptionMarkdown(assignmentPath, metadataNoSyncTime);
+            }
+
             if (action.type == SyncActionType::NewAssignment) {
                 if (metadataWritten || metadataExists) {
                     ++m_newCount;
@@ -1526,6 +1531,11 @@ void SyncManager::syncFolders()
 
             const bool metadataWritten = m_folderOrganizer.writeMetadataIfChanged(metadataPath, metadataToWrite, newHash, oldHash);
             const bool metadataFileExists = QFileInfo::exists(metadataPath);
+
+            const QString mdPath = QDir(assignmentPath).filePath(QStringLiteral("descripcion.md"));
+            if (metadataWritten || !QFileInfo::exists(mdPath)) {
+                m_folderOrganizer.writeDescriptionMarkdown(assignmentPath, metadataNoSyncTime);
+            }
 
             if (!metadataWritten && oldHash == newHash && metadataFileExists) {
                 ++m_unchangedCount;

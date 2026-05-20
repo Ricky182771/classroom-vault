@@ -2,11 +2,14 @@
 
 #include "Utils.hpp"
 
+#include <QDate>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QTextStream>
 
 void FolderOrganizer::setBasePath(const QString &basePath)
 {
@@ -187,4 +190,76 @@ bool FolderOrganizer::writeMetadataIfChanged(
         return false;
     }
     return writeMetadata(metadataPath, metadata);
+}
+
+bool FolderOrganizer::writeDescriptionMarkdown(const QString &assignmentFolder, const QJsonObject &metadata) const
+{
+    const QString mdPath = QDir(assignmentFolder).filePath(QStringLiteral("descripcion.md"));
+
+    const QString title = metadata.value(QStringLiteral("title")).toString().trimmed();
+    const QString courseName = metadata.value(QStringLiteral("courseName")).toString().trimmed();
+    const QString workType = metadata.value(QStringLiteral("workType")).toString().trimmed();
+    const QString description = metadata.value(QStringLiteral("description")).toString().trimmed();
+    const QString alternateLink = metadata.value(QStringLiteral("alternateLink")).toString().trimmed();
+
+    const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
+    const int year = dueDateObj.value(QStringLiteral("year")).toInt();
+    const int month = dueDateObj.value(QStringLiteral("month")).toInt();
+    const int day = dueDateObj.value(QStringLiteral("day")).toInt();
+    const QString dueDateStr = (year > 0 && month > 0 && day > 0)
+        ? QDate(year, month, day).toString(QStringLiteral("yyyy-MM-dd"))
+        : QStringLiteral("Sin fecha");
+
+    QString md;
+    md += QStringLiteral("# ") + (title.isEmpty() ? QStringLiteral("Tarea sin titulo") : title) + QStringLiteral("\n\n");
+    if (!courseName.isEmpty()) {
+        md += QStringLiteral("**Materia:** ") + courseName + QStringLiteral("  \n");
+    }
+    md += QStringLiteral("**Entrega:** ") + dueDateStr + QStringLiteral("  \n");
+    if (!workType.isEmpty()) {
+        md += QStringLiteral("**Tipo:** ") + workType + QStringLiteral("  \n");
+    }
+    if (!alternateLink.isEmpty()) {
+        md += QStringLiteral("**Classroom:** [Abrir tarea](") + alternateLink + QStringLiteral(")  \n");
+    }
+    md += QStringLiteral("\n---\n\n");
+
+    if (description.isEmpty()) {
+        md += QStringLiteral("*Esta tarea no tiene descripcion.*\n");
+    } else {
+        md += description + QStringLiteral("\n");
+    }
+
+    const QJsonArray materials = metadata.value(QStringLiteral("materials")).toArray();
+    if (!materials.isEmpty()) {
+        md += QStringLiteral("\n---\n\n## Materiales\n\n");
+        for (const QJsonValue &val : materials) {
+            const QJsonObject mat = val.toObject();
+            const QString matTitle = mat.value(QStringLiteral("title")).toString().trimmed();
+            const QString matLink = mat.value(QStringLiteral("alternateLink")).toString().trimmed().isEmpty()
+                ? mat.value(QStringLiteral("url")).toString().trimmed()
+                : mat.value(QStringLiteral("alternateLink")).toString().trimmed();
+            const QString matType = mat.value(QStringLiteral("type")).toString().trimmed();
+
+            md += QStringLiteral("- ");
+            if (!matLink.isEmpty()) {
+                md += QStringLiteral("[") + (matTitle.isEmpty() ? matLink : matTitle) + QStringLiteral("](") + matLink + QStringLiteral(")");
+            } else {
+                md += matTitle.isEmpty() ? QStringLiteral("(adjunto)") : matTitle;
+            }
+            if (!matType.isEmpty()) {
+                md += QStringLiteral(" *(") + matType + QStringLiteral(")*");
+            }
+            md += QStringLiteral("\n");
+        }
+    }
+
+    QFile file(mdPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        return false;
+    }
+    QTextStream out(&file);
+    out << md;
+    file.close();
+    return true;
 }

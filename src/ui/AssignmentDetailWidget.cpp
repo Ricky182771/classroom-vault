@@ -5,6 +5,8 @@
 #include "UserWorkPanelWidget.hpp"
 
 #include <QDesktopServices>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -12,6 +14,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QTextStream>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <utility>
@@ -115,6 +118,9 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
 
     m_descriptionLabel = new QLabel(QStringLiteral("Esta tarea no tiene descripcion guardada."), descriptionCard);
     m_descriptionLabel->setWordWrap(true);
+    m_descriptionLabel->setTextFormat(Qt::MarkdownText);
+    m_descriptionLabel->setOpenExternalLinks(true);
+    m_descriptionLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     descriptionLayout->addWidget(m_descriptionLabel);
 
     auto *evidenceTitle = new QLabel(QStringLiteral("Evidencia local"), descriptionCard);
@@ -189,11 +195,20 @@ void AssignmentDetailWidget::setPreviewData(const AssignmentPreviewData &preview
         QStringLiteral("font-size:20px;font-weight:700;background:%1;color:%2;border:none;border-radius:8px;padding:5px 8px;")
             .arg(visual.backgroundColor, visual.textColor));
 
-    QString description = preview.description.trimmed();
-    if (description.isEmpty()) {
-        description = QStringLiteral("Esta tarea no tiene descripcion guardada.");
+    QString mdContent;
+    const QString mdPath = QDir(preview.localFolderPath).filePath(QStringLiteral("descripcion.md"));
+    QFile mdFile(mdPath);
+    if (!preview.localFolderPath.isEmpty() && mdFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&mdFile);
+        mdContent = in.readAll();
+        mdFile.close();
+    } else {
+        const QString description = preview.description.trimmed();
+        mdContent = description.isEmpty()
+            ? QStringLiteral("*Esta tarea no tiene descripcion guardada.*")
+            : description;
     }
-    m_descriptionLabel->setText(description);
+    m_descriptionLabel->setText(mdContent);
 
     m_evidenceLabel->setText(
         QStringLiteral("metadata.json: %1\nRuta local: %2\nFecha de respaldo: %3\nAdjuntos detectados: %4")

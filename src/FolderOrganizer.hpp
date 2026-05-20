@@ -30,6 +30,7 @@ public:
         const QJsonObject &metadata,
         const QString &newHash,
         const QString &oldHash) const;
+    bool writeDescriptionMarkdown(const QString &assignmentFolder, const QJsonObject &metadata) const;
 
 private:
     bool ensureDir(const QString &path) const;
