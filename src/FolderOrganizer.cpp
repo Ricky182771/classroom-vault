@@ -6,7 +6,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTextStream>
@@ -201,6 +200,14 @@ bool FolderOrganizer::writeDescriptionMarkdown(const QString &assignmentFolder, 
     const QString workType = metadata.value(QStringLiteral("workType")).toString().trimmed();
     const QString description = metadata.value(QStringLiteral("description")).toString().trimmed();
     const QString alternateLink = metadata.value(QStringLiteral("alternateLink")).toString().trimmed();
+    const double maxPoints = metadata.contains(QStringLiteral("maxPoints"))
+        ? metadata.value(QStringLiteral("maxPoints")).toDouble()
+        : -1.0;
+
+    const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
+    const double assignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
+        ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
+        : -1.0;
 
     const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
     const int year = dueDateObj.value(QStringLiteral("year")).toInt();
@@ -209,6 +216,12 @@ bool FolderOrganizer::writeDescriptionMarkdown(const QString &assignmentFolder, 
     const QString dueDateStr = (year > 0 && month > 0 && day > 0)
         ? QDate(year, month, day).toString(QStringLiteral("yyyy-MM-dd"))
         : QStringLiteral("Sin fecha");
+
+    auto formatNum = [](double v) -> QString {
+        return (v == static_cast<double>(static_cast<long long>(v)))
+            ? QString::number(static_cast<long long>(v))
+            : QString::number(v, 'f', 2);
+    };
 
     QString md;
     md += QStringLiteral("# ") + (title.isEmpty() ? QStringLiteral("Tarea sin titulo") : title) + QStringLiteral("\n\n");
@@ -219,6 +232,16 @@ bool FolderOrganizer::writeDescriptionMarkdown(const QString &assignmentFolder, 
     if (!workType.isEmpty()) {
         md += QStringLiteral("**Tipo:** ") + workType + QStringLiteral("  \n");
     }
+    if (maxPoints >= 0.0) {
+        md += QStringLiteral("**Ponderacion:** ") + formatNum(maxPoints) + QStringLiteral(" pts  \n");
+    }
+    if (assignedGrade >= 0.0) {
+        if (maxPoints >= 0.0) {
+            md += QStringLiteral("**Calificacion:** ") + formatNum(assignedGrade) + QStringLiteral(" / ") + formatNum(maxPoints) + QStringLiteral(" pts  \n");
+        } else {
+            md += QStringLiteral("**Calificacion:** ") + formatNum(assignedGrade) + QStringLiteral("  \n");
+        }
+    }
     if (!alternateLink.isEmpty()) {
         md += QStringLiteral("**Classroom:** [Abrir tarea](") + alternateLink + QStringLiteral(")  \n");
     }
@@ -228,30 +251,6 @@ bool FolderOrganizer::writeDescriptionMarkdown(const QString &assignmentFolder, 
         md += QStringLiteral("*Esta tarea no tiene descripcion.*\n");
     } else {
         md += description + QStringLiteral("\n");
-    }
-
-    const QJsonArray materials = metadata.value(QStringLiteral("materials")).toArray();
-    if (!materials.isEmpty()) {
-        md += QStringLiteral("\n---\n\n## Materiales\n\n");
-        for (const QJsonValue &val : materials) {
-            const QJsonObject mat = val.toObject();
-            const QString matTitle = mat.value(QStringLiteral("title")).toString().trimmed();
-            const QString matLink = mat.value(QStringLiteral("alternateLink")).toString().trimmed().isEmpty()
-                ? mat.value(QStringLiteral("url")).toString().trimmed()
-                : mat.value(QStringLiteral("alternateLink")).toString().trimmed();
-            const QString matType = mat.value(QStringLiteral("type")).toString().trimmed();
-
-            md += QStringLiteral("- ");
-            if (!matLink.isEmpty()) {
-                md += QStringLiteral("[") + (matTitle.isEmpty() ? matLink : matTitle) + QStringLiteral("](") + matLink + QStringLiteral(")");
-            } else {
-                md += matTitle.isEmpty() ? QStringLiteral("(adjunto)") : matTitle;
-            }
-            if (!matType.isEmpty()) {
-                md += QStringLiteral(" *(") + matType + QStringLiteral(")*");
-            }
-            md += QStringLiteral("\n");
-        }
     }
 
     QFile file(mdPath);

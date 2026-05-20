@@ -39,6 +39,9 @@ struct Assignment {
     QString submissionAlternateLink;
     bool submissionLate = false;
     bool submissionStateReliable = false;
+    double maxPoints = -1.0;
+    double submissionAssignedGrade = -1.0;
+    double submissionDraftGrade = -1.0;
     QVector<AssignmentMaterial> materials;
     QJsonObject rawJson;
 };

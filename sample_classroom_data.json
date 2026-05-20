@@ -23,6 +23,7 @@
         "description": "Subir PDF con los ejercicios 1 al 5.",
         "workType": "ASSIGNMENT",
         "state": "PUBLISHED",
+        "maxPoints": 10,
         "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/MQ",
         "materials": [
           {
@@ -57,6 +58,7 @@
         "description": "Resolver ejercicio extra de recursion.",
         "workType": "ASSIGNMENT",
         "state": "PUBLISHED",
+        "maxPoints": 5,
         "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/Mg"
       }
     ],
@@ -67,6 +69,7 @@
         "description": "Entregar libreta escaneada.",
         "workType": "ASSIGNMENT",
         "state": "PUBLISHED",
+        "maxPoints": 100,
         "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/Mw",
         "materials": [
           {
@@ -99,6 +102,32 @@
         "workType": "MATERIAL",
         "state": "PUBLISHED",
         "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/NA"
+      }
+    ]
+  },
+  "studentSubmissions": {
+    "1234567890": [
+      {
+        "id": "sub_a1",
+        "courseId": "1234567890",
+        "courseWorkId": "a1",
+        "state": "RETURNED",
+        "late": false,
+        "assignedGrade": 9.5,
+        "draftGrade": 9.5,
+        "updateTime": "2026-05-15T10:00:00Z",
+        "alternateLink": "https://classroom.google.com/c/NzEyMzQ1Njc4OTA/a/MQ/submissions/by-status/and-sort-last-name/all"
+      }
+    ],
+    "9876543210": [
+      {
+        "id": "sub_b1",
+        "courseId": "9876543210",
+        "courseWorkId": "b1",
+        "state": "TURNED_IN",
+        "late": false,
+        "updateTime": "2026-05-19T08:00:00Z",
+        "alternateLink": "https://classroom.google.com/c/OTg3NjU0MzIxMA/a/Mw/submissions/by-status/and-sort-last-name/all"
       }
     ]
   }

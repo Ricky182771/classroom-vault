@@ -340,6 +340,9 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
                     assignment.workType = metadata.value(QStringLiteral("workType")).toString();
                     assignment.state = metadata.value(QStringLiteral("state")).toString();
                     assignment.alternateLink = metadata.value(QStringLiteral("alternateLink")).toString();
+                    assignment.maxPoints = metadata.contains(QStringLiteral("maxPoints"))
+                        ? metadata.value(QStringLiteral("maxPoints")).toDouble()
+                        : -1.0;
                     const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
                     assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
                     assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
@@ -348,6 +351,12 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
                     assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
                     assignment.submissionStateReliable =
                         submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
+                    assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
+                        ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
+                        : -1.0;
+                    assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
+                        ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
+                        : -1.0;
 
                     const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
                     if (!dueDateObj.isEmpty()) {
@@ -396,6 +405,12 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
                 assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
                 assignment.submissionStateReliable =
                     submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
+                assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
+                    ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
+                    : -1.0;
+                assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
+                    ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
+                    : -1.0;
             }
 
             assignments.append(assignment);
@@ -1391,6 +1406,8 @@ QJsonObject SyncManager::buildMetadata(const Course &course, const Assignment &a
     metadata.insert(QStringLiteral("dueDate"), Utils::dueDateObject(assignment.dueDate));
     metadata.insert(QStringLiteral("dueTime"), Utils::dueTimeObject(assignment.dueTime));
     metadata.insert(QStringLiteral("materials"), Utils::materialsToJsonArray(assignment.materials));
+    if (assignment.maxPoints >= 0.0)
+        metadata.insert(QStringLiteral("maxPoints"), assignment.maxPoints);
 
     QJsonObject submission;
     submission.insert(QStringLiteral("id"), assignment.submissionId);
@@ -1400,6 +1417,10 @@ QJsonObject SyncManager::buildMetadata(const Course &course, const Assignment &a
     submission.insert(QStringLiteral("updateTime"), assignment.submissionUpdateTime);
     submission.insert(QStringLiteral("alternateLink"), assignment.submissionAlternateLink);
     submission.insert(QStringLiteral("reliable"), assignment.submissionStateReliable);
+    if (assignment.submissionAssignedGrade >= 0.0)
+        submission.insert(QStringLiteral("assignedGrade"), assignment.submissionAssignedGrade);
+    if (assignment.submissionDraftGrade >= 0.0)
+        submission.insert(QStringLiteral("draftGrade"), assignment.submissionDraftGrade);
     metadata.insert(QStringLiteral("submission"), submission);
 
     return metadata;

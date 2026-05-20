@@ -317,6 +317,12 @@ void ClassroomClient::applyStudentSubmissionsToAssignments(
         assignment.submissionAlternateLink = submission.value(QStringLiteral("alternateLink")).toString().trimmed();
         assignment.submissionLate = submission.value(QStringLiteral("late")).toBool(false);
         assignment.submissionStateReliable = reliable && isSubmissionStateReliable(assignment.submissionState);
+        assignment.submissionAssignedGrade = submission.contains(QStringLiteral("assignedGrade"))
+            ? submission.value(QStringLiteral("assignedGrade")).toDouble()
+            : -1.0;
+        assignment.submissionDraftGrade = submission.contains(QStringLiteral("draftGrade"))
+            ? submission.value(QStringLiteral("draftGrade")).toDouble()
+            : -1.0;
     }
 
     m_courseWorkAccumulator.insert(courseId, assignments);
@@ -542,6 +548,9 @@ Assignment ClassroomClient::parseAssignmentObject(const QString &courseId, const
             dueTimeObj.value(QStringLiteral("seconds")).toInt(),
             dueTimeObj.value(QStringLiteral("nanos")).toInt() / 1000000);
     }
+
+    if (json.contains(QStringLiteral("maxPoints")))
+        assignment.maxPoints = json.value(QStringLiteral("maxPoints")).toDouble();
 
     assignment.rawJson = json;
     assignment.materials = parseMaterials(json.value(QStringLiteral("materials")).toArray());
