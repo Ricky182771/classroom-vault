@@ -145,6 +145,10 @@ private:
     void logSame(const QString &message);
     void logUpdated(const QString &message);
     void logErr(const QString &message);
+    void logSec(const QString &message);
+    void logArch(const QString &message);
+
+    bool checkBasePath();
 
     void emitCounters();
 

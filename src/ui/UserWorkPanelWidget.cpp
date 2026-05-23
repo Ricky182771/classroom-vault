@@ -128,6 +128,9 @@ void UserWorkPanelWidget::rebuildList()
         if (name.compare(QStringLiteral("metadata.json"), Qt::CaseInsensitive) == 0) {
             continue;
         }
+        if (name.compare(QStringLiteral("descripcion.md"), Qt::CaseInsensitive) == 0) {
+            continue;
+        }
 
         const QString iconPrefix = entry.isDir() ? QStringLiteral("[DIR] ") : QStringLiteral("[FILE] ");
         auto *item = new QListWidgetItem(iconPrefix + FolderOrganizer::sanitizeFileName(name), m_list);

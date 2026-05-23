@@ -347,6 +347,13 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
                 continue;
             }
 
+            // Las tareas archivadas/eliminadas no se cargan en memoria activa.
+            // Se mantienen en sync_state.json como evidencia historica pero no participan
+            // en sync, descarga de adjuntos ni generacion de UI activa.
+            if (m_syncStateManager.isAssignmentArchivedDeleted(courseId, assignmentId)) {
+                continue;
+            }
+
             Assignment assignment;
             assignment.id = assignmentId;
             assignment.courseId = courseId;
@@ -694,6 +701,14 @@ void SyncManager::startSyncAllInternal()
     m_pendingPublicationCourses.clear();
     m_incompletePublicationFetches.clear();
 
+    if (!checkBasePath()) {
+        ++m_errorCount;
+        emitCounters();
+        resetSyncOperationState();
+        emit syncFinished(m_newCount, m_updatedCount, m_unchangedCount, m_errorCount);
+        return;
+    }
+
     if (!m_stagingManager.beginSession(QStringLiteral("global"))) {
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo crear staging global de metadata."));
@@ -728,6 +743,14 @@ void SyncManager::startSyncCourseInternal(const QString &courseId)
     m_stagedPublicationsByCourse.clear();
     m_pendingPublicationCourses = QSet<QString>{courseId};
     m_incompletePublicationFetches.clear();
+
+    if (!checkBasePath()) {
+        ++m_errorCount;
+        emitCounters();
+        resetSyncOperationState();
+        emit syncFinished(m_newCount, m_updatedCount, m_unchangedCount, m_errorCount);
+        return;
+    }
 
     if (!m_stagingManager.beginSession(QStringLiteral("course"))) {
         ++m_errorCount;
@@ -1123,7 +1146,13 @@ void SyncManager::applyStagedDiffForScope()
                     ++m_newCount;
                     logNew(QStringLiteral("%1 / %2").arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
                 }
-            } else if (action.type == SyncActionType::UpdatedAssignment || action.type == SyncActionType::RestoredAssignment) {
+            } else if (action.type == SyncActionType::RestoredAssignment) {
+                if (metadataWritten || metadataExists) {
+                    ++m_updatedCount;
+                    logArch(QStringLiteral("Tarea restaurada desde Classroom (fue archivada localmente): %1 / %2")
+                                .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
+                }
+            } else if (action.type == SyncActionType::UpdatedAssignment) {
                 if (metadataWritten || metadataExists) {
                     ++m_updatedCount;
                     logUpdated(QStringLiteral("%1 / %2").arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
@@ -1441,6 +1470,13 @@ void SyncManager::onAuthSucceeded()
 
 void SyncManager::onChecksumFailed(const QString &courseId, const QString &assignmentId, const QStringList &attachmentKeys)
 {
+    // Proteccion de evidencia: las tareas archivadas/eliminadas no se re-descargan ni modifican.
+    if (m_syncStateManager.isAssignmentArchivedDeleted(courseId, assignmentId)) {
+        logArch(QStringLiteral("Tarea archivada protegida. Se omite re-descarga por checksum fallido: %1:%2")
+                    .arg(courseId, assignmentId));
+        return;
+    }
+
     if (!m_syncStateManager.load()) {
         logErr(QStringLiteral("No se pudo leer sync_state.json para reparar checksum fallido."));
         return;
@@ -1611,7 +1647,7 @@ void SyncManager::syncFolders()
     const QString configuredBasePath = m_configManager.basePath().trimmed();
     if (configuredBasePath.isEmpty()) {
         ++m_errorCount;
-        logErr(QStringLiteral("Ruta base vacia. Selecciona una carpeta primero."));
+        logSec(QStringLiteral("Ruta base vacia. Sincronizacion cancelada. Selecciona una carpeta primero."));
         emitCounters();
         emit syncFinished(m_newCount, m_updatedCount, m_unchangedCount, m_errorCount);
         return;
@@ -1620,7 +1656,7 @@ void SyncManager::syncFolders()
     const QFileInfo baseInfo(configuredBasePath);
     if (!baseInfo.exists() || !baseInfo.isDir()) {
         ++m_errorCount;
-        logErr(QStringLiteral("Ruta base inexistente: %1").arg(configuredBasePath));
+        logSec(QStringLiteral("Ruta base no existe o no es directorio: %1. Sincronizacion cancelada.").arg(configuredBasePath));
         emitCounters();
         emit syncFinished(m_newCount, m_updatedCount, m_unchangedCount, m_errorCount);
         return;
@@ -1628,7 +1664,7 @@ void SyncManager::syncFolders()
 
     if (!baseInfo.isWritable()) {
         ++m_errorCount;
-        logErr(QStringLiteral("Permisos insuficientes sobre ruta base: %1").arg(configuredBasePath));
+        logSec(QStringLiteral("Ruta base sin permisos de escritura: %1. Sincronizacion cancelada.").arg(configuredBasePath));
         emitCounters();
         emit syncFinished(m_newCount, m_updatedCount, m_unchangedCount, m_errorCount);
         return;
@@ -1677,6 +1713,13 @@ void SyncManager::syncFolders()
         for (const Assignment &assignment : assignments) {
             ++current;
             emit syncProgress(current, total);
+
+            // Guard: tareas archivadas son evidencia protegida — no se escribe sobre ellas.
+            if (m_syncStateManager.isAssignmentArchivedDeleted(course.id, assignment.id)) {
+                logArch(QStringLiteral("Tarea archivada protegida. Se omite escritura: %1 / %2")
+                            .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
+                continue;
+            }
 
             const bool knownAssignment = m_syncStateManager.hasAssignment(course.id, assignment.id);
             QString assignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id);
@@ -1861,6 +1904,12 @@ void SyncManager::downloadAttachments()
     const QList<Assignment> all = allAssignments();
     assignments.reserve(all.size());
     for (const Assignment &assignment : all) {
+        // Guard: adjuntos de tareas archivadas no se (re)descargan automaticamente.
+        if (m_syncStateManager.isAssignmentArchivedDeleted(assignment.courseId, assignment.id)) {
+            logArch(QStringLiteral("Tarea archivada protegida. Se omite descarga de adjuntos: %1")
+                        .arg(Utils::effectiveAssignmentTitle(assignment)));
+            continue;
+        }
         assignments.append(assignment);
     }
 
@@ -1890,6 +1939,47 @@ void SyncManager::logUpdated(const QString &message)
 void SyncManager::logErr(const QString &message)
 {
     emit errorOccurred(QStringLiteral("ERR   %1").arg(message));
+}
+
+void SyncManager::logSec(const QString &message)
+{
+    const QString tagged = QStringLiteral("[SEC]  %1").arg(message);
+    emit logMessage(tagged);
+    emit errorOccurred(tagged);
+}
+
+void SyncManager::logArch(const QString &message)
+{
+    emit logMessage(QStringLiteral("[ARCH] %1").arg(message));
+}
+
+bool SyncManager::checkBasePath()
+{
+    const QString path = m_configManager.basePath().trimmed();
+
+    if (path.isEmpty()) {
+        logSec(QStringLiteral("Ruta base vacia. Sincronizacion cancelada. Selecciona una carpeta primero."));
+        return false;
+    }
+
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        logSec(QStringLiteral("Ruta base no existe: %1. Sincronizacion cancelada.").arg(path));
+        return false;
+    }
+
+    if (!info.isDir()) {
+        logSec(QStringLiteral("Ruta base no es un directorio: %1. Sincronizacion cancelada.").arg(path));
+        return false;
+    }
+
+    if (!info.isWritable()) {
+        logSec(QStringLiteral("Ruta base sin permisos de escritura: %1. Sincronizacion cancelada.").arg(path));
+        return false;
+    }
+
+    logSec(QStringLiteral("Ruta base validada: %1").arg(path));
+    return true;
 }
 
 void SyncManager::emitCounters()

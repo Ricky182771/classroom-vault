@@ -151,6 +151,7 @@ private:
     QString m_globalSemesterFilter = QStringLiteral("Todos los semestres");
 
     QStringList m_logLines;
+    QString m_logFilePath;
 
     int m_coursesCount = 0;
     int m_assignmentsCount = 0;

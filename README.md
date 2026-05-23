@@ -2,6 +2,69 @@
 
 Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y organizar tareas por semestre/materia, incluyendo adjuntos dentro del mismo flujo de sincronizacion.
 
+## Medidas de seguridad
+
+### Proteccion de evidencia academica
+
+Las tareas marcadas como **"Eliminada y archivada"** (`isArchivedDeleted`) son evidencia historica protegida:
+
+- Su `metadata.json`, `Adjuntos/` y archivos del usuario **nunca se sobrescriben ni borran automaticamente**.
+- No son procesadas por `syncFolders()`, `downloadAttachments()` ni `onChecksumFailed()`.
+- No se cargan en el estado activo en memoria al iniciar la app (`loadLocalStateIntoMemory` las omite).
+- Solo se restauran explicitamente si Classroom vuelve a devolver el mismo `assignmentId` en un fetch completo y exitoso.
+- Una tarea se marca como eliminada solo si el fetch del curso fue **completo** (`fetchStatus: complete`). Un fetch incompleto nunca genera archivaciones.
+- El `.archived_deleted.json` dentro de la carpeta de tarea es un marcador adicional de proteccion.
+
+Logs de proteccion visibles en la app: `[ARCH]`
+
+### Sesion de Google
+
+- `token.json` y `credentials.json` se guardan en `~/.config/ClassroomVault/` (ruta de usuario).
+- Estos archivos **no se instalan** con `cmake install`, no se suben al repositorio y estan en `.gitignore`.
+- El `access_token` **no se imprime completo en logs**.
+- Si el `access_token` expira, se refresca automaticamente con el `refresh_token` (`[AUTH] Access token refrescado...`).
+- Si el `refresh_token` falla, se limpia la sesion y se solicita nuevo inicio de sesion (`[AUTH] La sesion expiro...`).
+- El cierre de sesion borra el token local pero no borra la configuracion ni los respaldos de tareas.
+
+### Validacion de ruta base
+
+Antes de cada sincronizacion (`syncAll`, `syncCourse`, `syncFolders`), se valida la ruta base:
+
+- Si esta vacia, no existe, no es directorio, o no tiene permisos de escritura → la sync se cancela.
+- **No se usa fallback silencioso** a ninguna otra ruta.
+- El `sync_state.json` no se actualiza como si la sync hubiera ocurrido.
+- El usuario recibe mensaje claro: `[SEC] Ruta base no existe: /ruta. Sincronizacion cancelada.`
+
+Esto protege de sincronizaciones accidentales cuando el disco externo esta desmontado.
+
+### Staging de metadata
+
+Cada sincronizacion completa (`syncAll`/`syncCourse`) crea un staging temporal en `~/.cache/ClassroomVault/sync_staging/`:
+
+1. Se obtiene metadata fresca de Classroom.
+2. Se escribe en staging (nunca directo al estado persistente).
+3. Se crea un manifest por curso con `fetchStatus: complete/incomplete`.
+4. Se hace diff de staging vs `sync_state.json`.
+5. Solo despues se aplican cambios en disco y se actualizan `metadata.json` y `sync_state.json`.
+6. Solo despues se procesan adjuntos.
+
+La metadata nueva de Classroom tiene prioridad sobre la local en todos los casos, excepto para tareas archivadas.
+
+### Prefijos de log
+
+| Prefijo | Significado |
+|---------|-------------|
+| `[SEC]` | Validacion de seguridad (ruta base, permisos) |
+| `[AUTH]` | Autenticacion y tokens de Google |
+| `[ARCH]` | Proteccion de tarea archivada o restauracion |
+| `[STAGE]` | Escritura de staging temporal |
+| `DIFF` | Resultado del diff staging vs estado persistente |
+| `ERR` | Error general |
+
+### Credenciales de usuario
+
+El archivo `config.example.json` muestra el esquema de configuracion. Las credenciales OAuth (`clientId`/`clientSecret`) se configuran en `~/.config/ClassroomVault/config.json` o mediante `oauth.credentialsFile` apuntando a un `credentials.json` del proyecto de Google Cloud. Ninguno de estos archivos se instala ni se sube al repositorio.
+
 ## Estado actual
 
 - OAuth 2.0 para app de escritorio con **login automatico por navegador + loopback local** (`127.0.0.1`).

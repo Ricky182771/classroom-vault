@@ -82,6 +82,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_globalSemesterFilter = m_syncManager->globalSemesterFilter();
     m_topBar->setGlobalSemesterFilter(m_globalSemesterFilter);
 
+    const QString cacheDir = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+    QDir().mkpath(cacheDir);
+    m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+
     m_runtimeStatus = QStringLiteral("Cargando estado local...");
     refreshStatusUi();
 
@@ -163,7 +167,11 @@ void MainWindow::connectSignals()
     connect(m_home, &HomeDashboardWidget::syncCourseRequested, this, &MainWindow::onSyncCourseRequested);
     connect(m_home, &HomeDashboardWidget::openClassroomRequested, this, &MainWindow::onOpenCourseClassroom);
     connect(m_home, &HomeDashboardWidget::showHistoryRequested, this, [this]() {
-        appendLog(QStringLiteral("INFO  Abre Actividad para ver el historial reciente."));
+        if (!m_logFilePath.isEmpty() && QFileInfo::exists(m_logFilePath)) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(m_logFilePath));
+        } else {
+            appendLog(QStringLiteral("INFO  Archivo de historial aun no disponible."));
+        }
     });
 
     connect(m_courseDetail, &CourseDetailWidget::backRequested, this, &MainWindow::onCourseBackRequested);
@@ -1334,6 +1342,8 @@ void MainWindow::onTopBarAccountRequested()
     menu.addSeparator();
     QAction *rebuildIndexAction = menu.addAction(QStringLiteral("Reconstruir indice local"));
     QAction *sampleAction = menu.addAction(QStringLiteral("Cargar datos de prueba"));
+    menu.addSeparator();
+    QAction *clearDataAction = menu.addAction(QStringLiteral("[DEP] Eliminar datos de usuario y backups"));
 
     QAction *selected = menu.exec(QCursor::pos());
     if (!selected) {
@@ -1344,6 +1354,79 @@ void MainWindow::onTopBarAccountRequested()
         onLogin();
     } else if (selected == logoutAction) {
         onLogout();
+    } else if (selected == clearDataAction) {
+        const QString configDir = m_syncManager->configManager().configDir();
+        const QString cacheDir  = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+
+        const QMessageBox::StandardButton confirm = QMessageBox::question(
+            this,
+            QStringLiteral("[DEP] Eliminar datos de usuario y backups"),
+            QStringLiteral("Esto eliminara permanentemente:\n"
+                           "  • sync_state.json y todos sus backups (.bak.*)\n"
+                           "  • El directorio de cache: %1\n"
+                           "  • El historial de actividad (activity.log)\n\n"
+                           "Tus carpetas de tareas y adjuntos NO se modificaran.\n\n"
+                           "Esta accion es irreversible. ¿Continuar?").arg(cacheDir),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (confirm != QMessageBox::Yes) {
+            return;
+        }
+
+        int deletedFiles = 0;
+
+        // sync_state.json
+        const QString syncStatePath = configDir + QStringLiteral("/sync_state.json");
+        if (QFile::exists(syncStatePath)) {
+            if (QFile::remove(syncStatePath)) {
+                ++deletedFiles;
+                appendLog(QStringLiteral("[DEP]  Eliminado: sync_state.json"));
+            }
+        }
+
+        // sync_state.json.bak.*
+        const QFileInfoList baks = QDir(configDir).entryInfoList(
+            QStringList{QStringLiteral("sync_state.json.bak*")}, QDir::Files);
+        for (const QFileInfo &bak : baks) {
+            if (QFile::remove(bak.absoluteFilePath())) {
+                ++deletedFiles;
+                appendLog(QStringLiteral("[DEP]  Eliminado: %1").arg(bak.fileName()));
+            }
+        }
+
+        // cache directory
+        if (QDir(cacheDir).exists()) {
+            if (QDir(cacheDir).removeRecursively()) {
+                ++deletedFiles;
+                appendLog(QStringLiteral("[DEP]  Eliminado directorio de cache: %1").arg(cacheDir));
+            }
+        }
+
+        // Recrear cache y log path para que sigan funcionando
+        QDir().mkpath(cacheDir);
+        m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+
+        // Limpiar estado en memoria
+        m_currentCourses.clear();
+        m_currentAssignments.clear();
+        m_logLines.clear();
+        m_coursesCount = 0;
+        m_assignmentsCount = 0;
+        m_newCount = 0;
+        m_updatedCount = 0;
+        m_unchangedCount = 0;
+        m_errorCount = 0;
+
+        m_runtimeStatus = QStringLiteral("Datos eliminados");
+        refreshAllViews();
+
+        appendLog(QStringLiteral("[DEP]  Limpieza completada. Archivos eliminados: %1").arg(deletedFiles));
+
+        QMessageBox::information(
+            this,
+            QStringLiteral("Datos eliminados"),
+            QStringLiteral("Se eliminaron %1 archivo(s) de datos internos.\n"
+                           "Tus carpetas de tareas no fueron modificadas.").arg(deletedFiles));
     } else if (selected == rebuildIndexAction) {
         const QMessageBox::StandardButton confirm = QMessageBox::question(
             this,
@@ -1379,6 +1462,13 @@ void MainWindow::appendLog(const QString &message)
     m_logLines.append(line);
     if (m_logLines.size() > 3000) {
         m_logLines.removeFirst();
+    }
+
+    if (!m_logFilePath.isEmpty()) {
+        QFile logFile(m_logFilePath);
+        if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+            logFile.write((line + u'\n').toUtf8());
+        }
     }
 
     m_statusBarWidget->setLastActionText(normalized);

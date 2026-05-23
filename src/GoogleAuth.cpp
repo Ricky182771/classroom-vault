@@ -432,6 +432,7 @@ void GoogleAuth::onTokenReplyFinished()
         if (requestType == QStringLiteral("refresh_token")) {
             clearTokens();
             emit tokenUpdated();
+            emit logMessage(QStringLiteral("[AUTH] Refresh token invalido. La sesion expiro. Se requiere nuevo inicio de sesion."));
             failAuthentication(QStringLiteral("La sesion expiro. Inicia sesion nuevamente."));
         } else {
             failAuthentication(
@@ -458,11 +459,11 @@ void GoogleAuth::onTokenReplyFinished()
     if (requestType == QStringLiteral("refresh_token")) {
         emit tokenRefreshed(m_accessToken);
         emitStatus(QStringLiteral("token_refreshed"));
-        emit logMessage(QStringLiteral("Access token refrescado correctamente."));
+        emit logMessage(QStringLiteral("[AUTH] Access token refrescado correctamente."));
     } else {
         emit authenticated(m_accessToken);
         emitStatus(QStringLiteral("authenticated"));
-        emit logMessage(QStringLiteral("Sesion OAuth completada correctamente."));
+        emit logMessage(QStringLiteral("[AUTH] Sesion OAuth completada correctamente."));
     }
 
     reply->deleteLater();
