@@ -1,4 +1,5 @@
 #include "ConfigManager.hpp"
+#include "Paths.hpp"
 
 #include <QDir>
 #include <QFile>
@@ -57,7 +58,7 @@ void applyOAuthCredentialsFile(QJsonObject &oauth, const QString &configDir)
 } // namespace
 
 ConfigManager::ConfigManager()
-    : m_configDir(QDir::homePath() + QStringLiteral("/.config/ClassroomVault"))
+    : m_configDir(Paths::configDir())
 {
     loadDefaults();
 }

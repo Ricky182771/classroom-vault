@@ -10,8 +10,35 @@
 #include <QIcon>
 #include <QTextStream>
 
+#ifdef Q_OS_WIN
+#include <cstdio>
+#include <windows.h>
+#endif
+
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    // When built as a GUI subsystem (WIN32) there is no default console.
+    // For --cli-sync, re-attach to the parent process console so that stdout
+    // and stderr reach the terminal that launched us (cmd / PowerShell).
+    // This must run before QApplication so the streams are ready for Qt's
+    // own early output as well.
+    const bool hasCliSync = [&]() {
+        for (int i = 1; i < argc; ++i) {
+            if (QLatin1String(argv[i]) == QLatin1String("--cli-sync")) {
+                return true;
+            }
+        }
+        return false;
+    }();
+    if (hasCliSync && AttachConsole(ATTACH_PARENT_PROCESS)) {
+        // NOLINTNEXTLINE(*-mt-unsafe) — single-threaded at this point
+        freopen("CONOUT$", "w", stdout);
+        freopen("CONOUT$", "w", stderr);
+        freopen("CONIN$",  "r", stdin);
+    }
+#endif
+
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon::fromTheme(
         QStringLiteral("classroom-vault"),

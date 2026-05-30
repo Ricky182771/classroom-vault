@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QSet>
 #include <QTextStream>
 
 void FolderOrganizer::setBasePath(const QString &basePath)
@@ -47,13 +48,51 @@ QString FolderOrganizer::sanitizeFileName(QString name)
     constexpr int maxLen = 120;
     if (name.size() > maxLen) {
         name = name.left(maxLen).trimmed();
+        // re-strip trailing space/dot introduced by truncation
+        while (!name.isEmpty() && (name.endsWith(QLatin1Char(' ')) || name.endsWith(QLatin1Char('.')))) {
+            name.chop(1);
+        }
     }
 
-    while (!name.isEmpty() && (name.endsWith(QLatin1Char(' ')) || name.endsWith(QLatin1Char('.')))) {
-        name.chop(1);
+    if (name.isEmpty()) {
+        name = QStringLiteral("Sin nombre");
     }
 
-    return name.isEmpty() ? QStringLiteral("Sin nombre") : name;
+    // Windows forbids these device names (even with an extension: CON.txt fails).
+    // Append underscore to the stem if it matches, keeping any extension intact.
+#ifdef Q_OS_WIN
+    static const QSet<QString> kWinReserved = {
+        QStringLiteral("CON"),  QStringLiteral("PRN"),  QStringLiteral("AUX"),
+        QStringLiteral("NUL"),
+        QStringLiteral("COM1"), QStringLiteral("COM2"), QStringLiteral("COM3"),
+        QStringLiteral("COM4"), QStringLiteral("COM5"), QStringLiteral("COM6"),
+        QStringLiteral("COM7"), QStringLiteral("COM8"), QStringLiteral("COM9"),
+        QStringLiteral("LPT1"), QStringLiteral("LPT2"), QStringLiteral("LPT3"),
+        QStringLiteral("LPT4"), QStringLiteral("LPT5"), QStringLiteral("LPT6"),
+        QStringLiteral("LPT7"), QStringLiteral("LPT8"), QStringLiteral("LPT9"),
+    };
+    const int dotPos = name.lastIndexOf(QLatin1Char('.'));
+    const QString stem = (dotPos >= 0) ? name.left(dotPos) : name;
+    if (kWinReserved.contains(stem.toUpper())) {
+        name.insert(dotPos >= 0 ? dotPos : name.size(), QLatin1Char('_'));
+    }
+#endif
+
+    return name;
+}
+
+// Returns true if the full filesystem path would exceed the safe limit for the
+// current platform. On Windows without long-path manifest the hard limit is 260
+// (MAX_PATH). We guard at 250 to leave headroom for the caller to append a
+// filename inside the folder.
+bool FolderOrganizer::isPathTooLong(const QString &path)
+{
+#ifdef Q_OS_WIN
+    constexpr int kLimit = 250;
+#else
+    constexpr int kLimit = 4096;
+#endif
+    return path.size() > kLimit;
 }
 
 QString FolderOrganizer::buildAssignmentFolderName(const Assignment &assignment)
@@ -166,8 +205,19 @@ QString FolderOrganizer::createAssignmentFolder(
     const Assignment &assignment) const
 {
     const QString coursePath = createCourseFolder(semester, courseName);
-    const QString assignmentFolderName = buildAssignmentFolderName(assignment);
-    const QString desiredPath = QDir(coursePath).filePath(assignmentFolderName);
+    QString assignmentFolderName = buildAssignmentFolderName(assignment);
+
+    // Guard against MAX_PATH on Windows: trim the folder name until the full
+    // path fits within the safe limit (250 chars).
+    QString desiredPath = QDir(coursePath).filePath(assignmentFolderName);
+    if (isPathTooLong(desiredPath)) {
+        const int overhead = desiredPath.size() - assignmentFolderName.size();
+        constexpr int kSafeLimit = 250;
+        const int allowedLen = qMax(10, kSafeLimit - overhead);
+        assignmentFolderName = sanitizeFileName(assignmentFolderName.left(allowedLen));
+        desiredPath = QDir(coursePath).filePath(assignmentFolderName);
+    }
+
     const QString finalPath = resolveFolderConflict(desiredPath, assignment.id);
     ensureDir(finalPath);
     return finalPath;

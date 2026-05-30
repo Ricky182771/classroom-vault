@@ -16,6 +16,7 @@ public:
 
     static QString sanitizeName(const QString &name);
     static QString sanitizeFileName(QString name);
+    static bool isPathTooLong(const QString &path);
     static QString buildAssignmentFolderName(const Assignment &assignment);
     static QString buildPublicationFolderName(const Publication &publication);
 

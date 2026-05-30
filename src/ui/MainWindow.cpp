@@ -1,6 +1,7 @@
 #include "MainWindow.hpp"
 
 #include "../GoogleAuth.hpp"
+#include "../Paths.hpp"
 #include "../SyncManager.hpp"
 #include "../Utils.hpp"
 #include "ActivityDrawerWidget.hpp"
@@ -82,9 +83,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_globalSemesterFilter = m_syncManager->globalSemesterFilter();
     m_topBar->setGlobalSemesterFilter(m_globalSemesterFilter);
 
-    const QString cacheDir = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+    const QString cacheDir = Paths::cacheDir();
     QDir().mkpath(cacheDir);
-    m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+    m_logFilePath = QDir(cacheDir).filePath(QStringLiteral("activity.log"));
 
     m_runtimeStatus = QStringLiteral("Cargando estado local...");
     refreshStatusUi();
@@ -1356,7 +1357,7 @@ void MainWindow::onTopBarAccountRequested()
         onLogout();
     } else if (selected == clearDataAction) {
         const QString configDir = m_syncManager->configManager().configDir();
-        const QString cacheDir  = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+        const QString cacheDir  = Paths::cacheDir();
 
         const QMessageBox::StandardButton confirm = QMessageBox::question(
             this,
@@ -1404,7 +1405,7 @@ void MainWindow::onTopBarAccountRequested()
 
         // Recrear cache y log path para que sigan funcionando
         QDir().mkpath(cacheDir);
-        m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+        m_logFilePath = QDir(cacheDir).filePath(QStringLiteral("activity.log"));
 
         // Limpiar estado en memoria
         m_currentCourses.clear();
