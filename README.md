@@ -137,6 +137,52 @@ cmake --build build
 ./build/classroom-vault
 ```
 
+## Compilar en Windows
+
+Prerrequisitos:
+
+- [Qt 6.6+](https://www.qt.io/download) — seleccionar el componente **MSVC 2022 64-bit** durante la instalacion.
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) con la carga de trabajo **Desktop development with C++**.
+- [CMake 3.20+](https://cmake.org/download/) y [Ninja](https://ninja-build.org/).
+
+```powershell
+# PowerShell — ajustar la ruta a Qt segun tu instalacion
+cmake -S . -B build -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.6.0\msvc2022_64"
+cmake --build build
+.\build\classroom-vault.exe
+```
+
+Archivos de usuario en Windows:
+
+| Tipo | Ruta |
+|------|------|
+| Configuracion (`config.json`, `token.json`) | `%APPDATA%\ClassroomVault\` |
+| Cache / staging | `%LOCALAPPDATA%\ClassroomVault\` |
+
+**Distribucion (ZIP portable):**
+
+Despues de compilar, ejecutar `windeployqt` (incluido en Qt) para copiar las DLLs de Qt junto al ejecutable.
+Si CMake encontro `windeployqt` en el `PATH`, esto ocurre automaticamente en cada build de desarrollo.
+Para empaquetar una release:
+
+```powershell
+windeployqt --no-translations --no-quick-import .\build\classroom-vault.exe
+# Comprimir la carpeta build\ como ZIP y distribuir.
+```
+
+**Long paths (opcional):** Si los paths completos de tus tareas superan 260 caracteres, habilita la politica de paths largos en Windows 10/11:
+`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`
+
+**Modo CLI en Windows:**
+
+```powershell
+.\build\classroom-vault.exe --cli-sync --base-path "C:\Respaldo\Tareas" --sample sample_classroom_data.json
+```
+
+La app re-adjunta automaticamente stdout/stderr a la consola de PowerShell o cmd que la lanzo.
+
 ## Instalacion en Fedora/Linux
 
 Instalar en el sistema (binario + desktop entry + icono + metainfo):

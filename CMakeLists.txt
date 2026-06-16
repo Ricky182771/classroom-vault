@@ -12,7 +12,15 @@ find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 
 qt_standard_project_setup()
 
-qt_add_executable(classroom-vault
+# On Windows the executable must declare the GUI subsystem so that no black
+# console window appears when launched from Explorer or the Start menu.
+# The --cli-sync code path re-attaches stdout/stderr at runtime (see main.cpp).
+set(WIN32_FLAG "")
+if(WIN32)
+    set(WIN32_FLAG WIN32)
+endif()
+
+qt_add_executable(classroom-vault ${WIN32_FLAG}
     src/main.cpp
     src/GoogleAuth.hpp
     src/GoogleAuth.cpp
@@ -37,6 +45,7 @@ qt_add_executable(classroom-vault
     src/AttachmentChecksumManager.hpp
     src/AttachmentChecksumManager.cpp
     src/Models.hpp
+    src/Paths.hpp
     src/Utils.hpp
     src/ui/MainWindow.hpp
     src/ui/MainWindow.cpp
@@ -96,6 +105,7 @@ qt_add_executable(classroom-vault
     src/ui/SettingsViewWidget.hpp
     src/ui/SettingsViewWidget.cpp
     resources/app.qrc
+    $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/app.rc>
 )
 
 target_link_libraries(classroom-vault
@@ -104,6 +114,12 @@ target_link_libraries(classroom-vault
         Qt6::Network
         Qt6::Widgets
 )
+
+# MSVC: enforce UTF-8 source and strict mode so that Spanish string literals
+# compile correctly on Windows regardless of the system code page.
+if(MSVC)
+    target_compile_options(classroom-vault PRIVATE /utf-8 /W4 /permissive-)
+endif()
 
 install(TARGETS classroom-vault
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -121,6 +137,24 @@ if(UNIX AND NOT APPLE)
     install(FILES packaging/linux/io.github.ric4rdo149.ClassroomVault.metainfo.xml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
     )
+endif()
+
+# Windows: copy Qt runtime DLLs next to the executable after each build.
+# This is only for local development; the release ZIP is produced by running
+# windeployqt manually (see README.md).
+if(WIN32)
+    find_program(WINDEPLOYQT windeployqt HINTS "${Qt6_DIR}/../../../bin")
+    if(WINDEPLOYQT)
+        add_custom_command(TARGET classroom-vault POST_BUILD
+            COMMAND "${WINDEPLOYQT}"
+                --no-translations
+                --no-quick-import
+                --no-system-d3d-compiler
+                "$<TARGET_FILE:classroom-vault>"
+            COMMENT "Deploying Qt runtime DLLs (windeployqt)"
+            VERBATIM
+        )
+    endif()
 endif()
 
 configure_file(

@@ -1,4 +1,5 @@
 #include "SyncStagingManager.hpp"
+#include "Paths.hpp"
 
 #include <QDateTime>
 #include <QDir>
@@ -6,7 +7,6 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QStandardPaths>
 
 SyncStagingManager::SyncStagingManager(QObject *parent)
     : QObject(parent)
@@ -315,11 +315,7 @@ QJsonObject SyncStagingManager::readJsonFile(const QString &path) const
 
 QString SyncStagingManager::baseStagingPath() const
 {
-    QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation).trimmed();
-    if (cacheRoot.isEmpty()) {
-        cacheRoot = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
-    }
-    return QDir(cacheRoot).filePath(QStringLiteral("sync_staging"));
+    return QDir(Paths::cacheDir()).filePath(QStringLiteral("sync_staging"));
 }
 
 QString SyncStagingManager::courseDirPath(const QString &courseId) const

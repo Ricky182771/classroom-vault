@@ -1,6 +1,7 @@
 #include "MainWindow.hpp"
 
 #include "../GoogleAuth.hpp"
+#include "../Paths.hpp"
 #include "../SyncManager.hpp"
 #include "../Utils.hpp"
 #include "ActivityDrawerWidget.hpp"
@@ -82,9 +83,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_globalSemesterFilter = m_syncManager->globalSemesterFilter();
     m_topBar->setGlobalSemesterFilter(m_globalSemesterFilter);
 
-    const QString cacheDir = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+    const QString cacheDir = Paths::cacheDir();
     QDir().mkpath(cacheDir);
-    m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+    m_logFilePath = QDir(cacheDir).filePath(QStringLiteral("activity.log"));
 
     m_runtimeStatus = QStringLiteral("Cargando estado local...");
     refreshStatusUi();
@@ -323,9 +324,27 @@ void MainWindow::showAssignmentDetail(const QString &courseId, const QString &as
 {
     const Course *course = findCourse(courseId);
     const Assignment *assignment = findAssignment(courseId, assignmentId);
-    if (!course || !assignment) {
+
+    // Deleted/archived tasks are absent from m_currentAssignments but still
+    // exist in the local sync state. Allow navigation as long as the course
+    // is known and the assignment has a state record (i.e. was synced before).
+    const bool assignmentKnownLocally =
+        m_syncManager->knownAssignmentIds(courseId).contains(assignmentId);
+    if (!course || (!assignment && !assignmentKnownLocally)) {
         appendError(QStringLiteral("No se encontro la tarea seleccionada."));
         return;
+    }
+
+    // Resolve title: prefer live assignment, fall back to stored state.
+    QString assignmentTitle;
+    if (assignment) {
+        assignmentTitle = Utils::effectiveAssignmentTitle(*assignment);
+    } else {
+        const QJsonObject state = m_syncManager->assignmentState(courseId, assignmentId);
+        assignmentTitle = state.value(QStringLiteral("title")).toString().trimmed();
+        if (assignmentTitle.isEmpty()) {
+            assignmentTitle = QStringLiteral("Tarea archivada");
+        }
     }
 
     m_currentPage = ViewPage::AssignmentDetail;
@@ -333,8 +352,8 @@ void MainWindow::showAssignmentDetail(const QString &courseId, const QString &as
     m_currentAssignmentId = assignmentId;
 
     m_stack->setCurrentWidget(m_assignmentDetail);
-    m_breadcrumb->setAssignment(courseId, course->name, assignmentId, Utils::effectiveAssignmentTitle(*assignment));
-    m_topBar->setPageTitle(Utils::effectiveAssignmentTitle(*assignment));
+    m_breadcrumb->setAssignment(courseId, course->name, assignmentId, assignmentTitle);
+    m_topBar->setPageTitle(assignmentTitle);
     m_topBar->setSearchPlaceholder(QStringLiteral("Buscar adjuntos o detalles…"));
 
     refreshAssignmentUi();
@@ -560,7 +579,18 @@ QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString
         if (item.title.isEmpty()) {
             item.title = QStringLiteral("Tarea archivada");
         }
-        item.dueDateText = QStringLiteral("Sin fecha");
+        const QJsonObject dueDateObj = state.value(QStringLiteral("dueDate")).toObject();
+        const int year = dueDateObj.value(QStringLiteral("year")).toInt();
+        const int month = dueDateObj.value(QStringLiteral("month")).toInt();
+        const int day = dueDateObj.value(QStringLiteral("day")).toInt();
+        if (year > 0 && month > 0 && day > 0) {
+            item.dueDateText = QStringLiteral("%1-%2-%3")
+                .arg(year, 4, 10, QLatin1Char('0'))
+                .arg(month, 2, 10, QLatin1Char('0'))
+                .arg(day, 2, 10, QLatin1Char('0'));
+        } else {
+            item.dueDateText = QStringLiteral("Sin fecha");
+        }
         item.stateText = QStringLiteral("Eliminada y archivada");
         item.classroomUrl = QString();
         item.folderPath = state.value(QStringLiteral("folderPath")).toString().trimmed();
@@ -749,8 +779,27 @@ AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId
     if (preview.archivedDeleted) {
         preview.state = QStringLiteral("Eliminada y archivada");
     }
-    preview.dueDateText = assignment && assignment->dueDate.isValid() ? assignment->dueDate.toString(QStringLiteral("yyyy-MM-dd")) : QStringLiteral("Sin fecha");
-    preview.dueTimeText = assignment && assignment->dueTime.isValid() ? assignment->dueTime.toString(QStringLiteral("HH:mm")) : QStringLiteral("Sin hora");
+    if (assignment && assignment->dueDate.isValid()) {
+        preview.dueDateText = assignment->dueDate.toString(QStringLiteral("yyyy-MM-dd"));
+    } else {
+        const QJsonObject dueDateObj = state.value(QStringLiteral("dueDate")).toObject();
+        const int year = dueDateObj.value(QStringLiteral("year")).toInt();
+        const int month = dueDateObj.value(QStringLiteral("month")).toInt();
+        const int day = dueDateObj.value(QStringLiteral("day")).toInt();
+        preview.dueDateText = (year > 0 && month > 0 && day > 0)
+            ? QStringLiteral("%1-%2-%3").arg(year, 4, 10, QLatin1Char('0')).arg(month, 2, 10, QLatin1Char('0')).arg(day, 2, 10, QLatin1Char('0'))
+            : QStringLiteral("Sin fecha");
+    }
+    if (assignment && assignment->dueTime.isValid()) {
+        preview.dueTimeText = assignment->dueTime.toString(QStringLiteral("HH:mm"));
+    } else {
+        const QJsonObject dueTimeObj = state.value(QStringLiteral("dueTime")).toObject();
+        const int hours = dueTimeObj.value(QStringLiteral("hours")).toInt(-1);
+        const int minutes = dueTimeObj.value(QStringLiteral("minutes")).toInt(-1);
+        preview.dueTimeText = (hours >= 0 && minutes >= 0)
+            ? QStringLiteral("%1:%2").arg(hours, 2, 10, QLatin1Char('0')).arg(minutes, 2, 10, QLatin1Char('0'))
+            : QStringLiteral("Sin hora");
+    }
     preview.alternateLink = assignment ? assignment->alternateLink : QString();
     preview.localFolderPath = m_syncManager->assignmentFolderPath(courseId, assignmentId);
     preview.metadataPath = metadataPath;
@@ -1356,7 +1405,7 @@ void MainWindow::onTopBarAccountRequested()
         onLogout();
     } else if (selected == clearDataAction) {
         const QString configDir = m_syncManager->configManager().configDir();
-        const QString cacheDir  = QDir::homePath() + QStringLiteral("/.cache/ClassroomVault");
+        const QString cacheDir  = Paths::cacheDir();
 
         const QMessageBox::StandardButton confirm = QMessageBox::question(
             this,
@@ -1404,7 +1453,7 @@ void MainWindow::onTopBarAccountRequested()
 
         // Recrear cache y log path para que sigan funcionando
         QDir().mkpath(cacheDir);
-        m_logFilePath = cacheDir + QStringLiteral("/activity.log");
+        m_logFilePath = QDir(cacheDir).filePath(QStringLiteral("activity.log"));
 
         // Limpiar estado en memoria
         m_currentCourses.clear();
