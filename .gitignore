@@ -9,4 +9,5 @@ config.json
 *.bak
 .cache/
 .classroom_vault_tmp/
+.qt/
 CLAUDE.md
