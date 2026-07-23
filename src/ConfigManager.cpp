@@ -55,6 +55,24 @@ void applyOAuthCredentialsFile(QJsonObject &oauth, const QString &configDir)
     }
 }
 
+QString embeddedClientId()
+{
+#ifdef CV_EMBEDDED_CLIENT_ID
+    return QStringLiteral(CV_EMBEDDED_CLIENT_ID);
+#else
+    return QString();
+#endif
+}
+
+QString embeddedClientSecret()
+{
+#ifdef CV_EMBEDDED_CLIENT_SECRET
+    return QStringLiteral(CV_EMBEDDED_CLIENT_SECRET);
+#else
+    return QString();
+#endif
+}
+
 } // namespace
 
 ConfigManager::ConfigManager()
@@ -287,12 +305,16 @@ void ConfigManager::clearLegacySemesterForCourseName(const QString &courseName)
 
 QString ConfigManager::oauthClientId() const
 {
-    return m_oauth.value(QStringLiteral("clientId")).toString();
+    // El clientId del usuario (config.json / credentialsFile) tiene prioridad;
+    // si esta vacio, se usa la credencial embebida en el binario (si existe).
+    const QString fromConfig = m_oauth.value(QStringLiteral("clientId")).toString().trimmed();
+    return fromConfig.isEmpty() ? embeddedClientId() : fromConfig;
 }
 
 QString ConfigManager::oauthClientSecret() const
 {
-    return m_oauth.value(QStringLiteral("clientSecret")).toString();
+    const QString fromConfig = m_oauth.value(QStringLiteral("clientSecret")).toString().trimmed();
+    return fromConfig.isEmpty() ? embeddedClientSecret() : fromConfig;
 }
 
 QString ConfigManager::oauthRedirectUri() const

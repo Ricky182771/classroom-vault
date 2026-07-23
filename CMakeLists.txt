@@ -164,6 +164,26 @@ configure_file(
     @ONLY
 )
 
+set(CV_OAUTH_CLIENT_ID "" CACHE STRING "Embedded Google OAuth client_id")
+set(CV_OAUTH_CLIENT_SECRET "" CACHE STRING "Embedded Google OAuth client_secret")
+
+if(CV_OAUTH_CLIENT_ID STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_ID})
+    set(CV_OAUTH_CLIENT_ID "$ENV{CV_OAUTH_CLIENT_ID}")
+endif()
+if(CV_OAUTH_CLIENT_SECRET STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_SECRET})
+    set(CV_OAUTH_CLIENT_SECRET "$ENV{CV_OAUTH_CLIENT_SECRET}")
+endif()
+
+if(NOT CV_OAUTH_CLIENT_ID STREQUAL "" AND NOT CV_OAUTH_CLIENT_SECRET STREQUAL "")
+    target_compile_definitions(classroom-vault PRIVATE
+        CV_EMBEDDED_CLIENT_ID="${CV_OAUTH_CLIENT_ID}"
+        CV_EMBEDDED_CLIENT_SECRET="${CV_OAUTH_CLIENT_SECRET}"
+    )
+    message(STATUS "[OAuth] Enabled embedded credentials")
+else()
+    message(STATUS "[OAuth] Undefined credentials, using user config")
+endif()
+
 add_custom_target(uninstall
     COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/cmake_uninstall.cmake"
 )
