@@ -1,6 +1,7 @@
-/build/
-/build-asan/
-/build-ubsan/
+build/
+build-asan
+build-ubsan
+build/
 /WebUI/
 credentials.json
 token.json
