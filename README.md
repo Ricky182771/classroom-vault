@@ -1,214 +1,88 @@
 # Classroom Vault / TareaSync
 
-Aplicacion de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y organizar tareas por semestre/materia, incluyendo adjuntos dentro del mismo flujo de sincronizacion.
+Aplicación de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y organizar tareas por semestre/materia, incluyendo adjuntos, dentro del mismo flujo de sincronización.
 
-## Medidas de seguridad
+> Respaldo histórico local de tus tareas de Classroom — con protección contra pérdida accidental de evidencia académica.
 
-### Proteccion de evidencia academica
+---
 
-Las tareas marcadas como **"Eliminada y archivada"** (`isArchivedDeleted`) son evidencia historica protegida:
+## Índice
 
-- Su `metadata.json`, `Adjuntos/` y archivos del usuario **nunca se sobrescriben ni borran automaticamente**.
-- No son procesadas por `syncFolders()`, `downloadAttachments()` ni `onChecksumFailed()`.
-- No se cargan en el estado activo en memoria al iniciar la app (`loadLocalStateIntoMemory` las omite).
-- Solo se restauran explicitamente si Classroom vuelve a devolver el mismo `assignmentId` en un fetch completo y exitoso.
-- Una tarea se marca como eliminada solo si el fetch del curso fue **completo** (`fetchStatus: complete`). Un fetch incompleto nunca genera archivaciones.
-- El `.archived_deleted.json` dentro de la carpeta de tarea es un marcador adicional de proteccion.
+- [Estado actual](#estado-actual)
+- [Instalación y compilación](#instalación-y-compilación)
+- [Uso](#uso)
+- [Configuración](#configuración)
+- [Seguridad y protección de datos](#seguridad-y-protección-de-datos)
+- [Sincronización (detalle técnico)](#sincronización-detalle-técnico)
+- [Troubleshooting](#troubleshooting)
+- [Limitaciones actuales](#limitaciones-actuales)
 
-Logs de proteccion visibles en la app: `[ARCH]`
-
-### Sesion de Google
-
-- `token.json` y `credentials.json` se guardan en `~/.config/ClassroomVault/` (ruta de usuario).
-- Estos archivos **no se instalan** con `cmake install`, no se suben al repositorio y estan en `.gitignore`.
-- El `access_token` **no se imprime completo en logs**.
-- Si el `access_token` expira, se refresca automaticamente con el `refresh_token` (`[AUTH] Access token refrescado...`).
-- Si el `refresh_token` falla, se limpia la sesion y se solicita nuevo inicio de sesion (`[AUTH] La sesion expiro...`).
-- El cierre de sesion borra el token local pero no borra la configuracion ni los respaldos de tareas.
-
-### Validacion de ruta base
-
-Antes de cada sincronizacion (`syncAll`, `syncCourse`, `syncFolders`), se valida la ruta base:
-
-- Si esta vacia, no existe, no es directorio, o no tiene permisos de escritura → la sync se cancela.
-- **No se usa fallback silencioso** a ninguna otra ruta.
-- El `sync_state.json` no se actualiza como si la sync hubiera ocurrido.
-- El usuario recibe mensaje claro: `[SEC] Ruta base no existe: /ruta. Sincronizacion cancelada.`
-
-Esto protege de sincronizaciones accidentales cuando el disco externo esta desmontado.
-
-### Staging de metadata
-
-Cada sincronizacion completa (`syncAll`/`syncCourse`) crea un staging temporal en `~/.cache/ClassroomVault/sync_staging/`:
-
-1. Se obtiene metadata fresca de Classroom.
-2. Se escribe en staging (nunca directo al estado persistente).
-3. Se crea un manifest por curso con `fetchStatus: complete/incomplete`.
-4. Se hace diff de staging vs `sync_state.json`.
-5. Solo despues se aplican cambios en disco y se actualizan `metadata.json` y `sync_state.json`.
-6. Solo despues se procesan adjuntos.
-
-La metadata nueva de Classroom tiene prioridad sobre la local en todos los casos, excepto para tareas archivadas.
-
-### Prefijos de log
-
-| Prefijo | Significado |
-|---------|-------------|
-| `[SEC]` | Validacion de seguridad (ruta base, permisos) |
-| `[AUTH]` | Autenticacion y tokens de Google |
-| `[ARCH]` | Proteccion de tarea archivada o restauracion |
-| `[STAGE]` | Escritura de staging temporal |
-| `DIFF` | Resultado del diff staging vs estado persistente |
-| `ERR` | Error general |
-
-### Credenciales de usuario
-
-El archivo `config.example.json` muestra el esquema de configuracion. Las credenciales OAuth (`clientId`/`clientSecret`) se configuran en `~/.config/ClassroomVault/config.json` o mediante `oauth.credentialsFile` apuntando a un `credentials.json` del proyecto de Google Cloud. Ninguno de estos archivos se instala ni se sube al repositorio.
+---
 
 ## Estado actual
 
-- OAuth 2.0 para app de escritorio con **login automatico por navegador + loopback local** (`127.0.0.1`).
+- OAuth 2.0 para app de escritorio con **login automático por navegador + loopback local** (`127.0.0.1`).
 - Lectura de cursos activos y tareas desde Classroom API.
-- Creacion y actualizacion de carpetas/`metadata.json`.
+- Creación y actualización de carpetas/`metadata.json`.
 - Estado persistente en `sync_state.json` para evitar duplicados.
-- Restauracion de estado local al iniciar (cursos/tareas desde `sync_state.json`).
-- Carga automatica de Classroom al abrir si existe sesion valida (sin abrir navegador automaticamente).
+- Restauración de estado local al iniciar (cursos/tareas desde `sync_state.json`).
+- Carga automática de Classroom al abrir si existe sesión válida (sin abrir navegador automáticamente).
 - Selector global de semestre (Todos/Sin semestre/Semestre 1..6) y selector manual por materia.
-- Reconstruccion segura de indice local con backup `.bak` de `sync_state.json` (sin borrar trabajos del usuario).
-- Deteccion de `materials` en tareas.
-- Sincronizacion por **staging de metadata fresca** (`~/.cache/.../sync_staging`) antes de tocar estado persistente.
+- Reconstrucción segura de índice local con backup `.bak` de `sync_state.json`.
+- Sincronización por **staging de metadata fresca** antes de tocar el estado persistente.
 - `Sincronizar materia` sincroniza solo el `courseId` seleccionado (no ejecuta sync global).
-- Deteccion de tareas eliminadas solo cuando el fetch del curso fue completo.
-- Nueva interfaz Qt Widgets modular en modo oscuro (inspirada en Classroom, enfocada a respaldo historico):
-  - Flujo jerarquico principal: **Inicio -> Materia -> Tarea**.
-  - Grid de cursos responsive con **maximo 4 columnas**.
-  - Navegacion contextual con `TopBar`, `PathBar`, `Breadcrumb`, cards de cursos y cards/lista de tareas.
-  - Preview de tarea desde `metadata.json` con **scroll vertical unico** (header + descripcion + evidencia + adjuntos).
-- Descarga de adjuntos (fase actual):
-  - `driveFile`: metadata + descarga binaria
-  - Google Docs/Sheets/Slides/Drawings: exportacion
-  - Links/YouTube/Forms: guardado como `.url`
+- Interfaz Qt Widgets modular en modo oscuro, con flujo jerárquico: **Inicio → Materia → Tarea**.
 
-## Navegacion UI
+<details>
+<summary><strong>Descarga de adjuntos (fase actual)</strong></summary>
 
-- `Inicio`: resumen de respaldo, KPIs, filtros y grid de materias.
-- `Materia`: lista de tareas del curso seleccionado, estado de metadata/adjuntos y acciones.
-- `Tarea`: previsualizacion local (titulo, descripcion, fecha, estado, evidencia, adjuntos).
-- `Actividad`: panel desplegable para logs recientes.
-- `Ruta`: controles globales (cambiar ruta, abrir respaldo, sincronizar todo).
+- `driveFile`: metadata + descarga binaria.
+- Google Docs/Sheets/Slides/Drawings: exportación.
+- Links/YouTube/Forms: guardado como `.url`.
 
-## Estados visuales de curso
+### Exportaciones Workspace
 
-- `Completo`: todas las tareas detectadas con respaldo local.
-- `Pendiente`: faltan tareas por respaldar.
-- `Error`: inconsistencias o errores detectados durante procesos previos.
-- `Sin sync`: curso sin sincronizacion util aun.
+| Tipo de Google Workspace | Se exporta como |
+|---|---|
+| Docs (`document`) | `.docx` |
+| Sheets (`spreadsheet`) | `.xlsx` |
+| Slides (`presentation`) | `.pptx` |
+| Drawings (`drawing`) | `.png` |
+| Forms (`form`) | `.url` (enlace, no hay export binario) |
+| Otros no exportables | `.url` con `webViewLink` cuando exista |
 
-Estados locales usados en incrementalidad:
+</details>
 
-- `MissingLocal`: existia estado en `sync_state.json` pero faltan carpetas/archivos en disco.
-- `NotSynced`: elemento sin respaldo local aun.
+---
 
-## Preview con metadata
+## Instalación y compilación
 
-- La vista de detalle de tarea usa `metadata.json` como fuente principal.
-- Si no existe `metadata.json`, la app construye un preview de respaldo usando `sync_state.json` y datos cargados.
-- Los adjuntos se muestran como tarjetas con acciones:
-  - abrir archivo local
-  - abrir carpeta
-  - abrir enlace original
-
-## Dependencias (Fedora)
+### Dependencias (Fedora)
 
 ```bash
 sudo dnf install qt6-qtbase-devel cmake gcc-c++ ninja-build
 ```
 
-## Compilar (desarrollo local)
+### Compilar (desarrollo local — Linux)
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-```
-
-## Ejecutar desde build
-
-```bash
 ./build/classroom-vault
 ```
 
-## Compilar en Windows
-
-Prerrequisitos:
-
-- [Qt 6.6+](https://www.qt.io/download) — seleccionar el componente **MSVC 2022 64-bit** durante la instalacion.
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) con la carga de trabajo **Desktop development with C++**.
-- [CMake 3.20+](https://cmake.org/download/) y [Ninja](https://ninja-build.org/).
-
-```powershell
-# PowerShell — ajustar la ruta a Qt segun tu instalacion
-cmake -S . -B build -G Ninja `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_PREFIX_PATH="C:\Qt\6.6.0\msvc2022_64"
-cmake --build build
-.\build\classroom-vault.exe
-```
-
-Archivos de usuario en Windows:
-
-| Tipo | Ruta |
-|------|------|
-| Configuracion (`config.json`, `token.json`) | `%APPDATA%\ClassroomVault\` |
-| Cache / staging | `%LOCALAPPDATA%\ClassroomVault\` |
-
-**Distribucion (ZIP portable):**
-
-Despues de compilar, ejecutar `windeployqt` (incluido en Qt) para copiar las DLLs de Qt junto al ejecutable.
-Si CMake encontro `windeployqt` en el `PATH`, esto ocurre automaticamente en cada build de desarrollo.
-Para empaquetar una release:
-
-```powershell
-windeployqt --no-translations --no-quick-import .\build\classroom-vault.exe
-# Comprimir la carpeta build\ como ZIP y distribuir.
-```
-
-**Long paths (opcional):** Si los paths completos de tus tareas superan 260 caracteres, habilita la politica de paths largos en Windows 10/11:
-`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`
-
-**Modo CLI en Windows:**
-
-```powershell
-.\build\classroom-vault.exe --cli-sync --base-path "C:\Respaldo\Tareas" --sample sample_classroom_data.json
-```
-
-La app re-adjunta automaticamente stdout/stderr a la consola de PowerShell o cmd que la lanzo.
-
-## Instalacion en Fedora/Linux
-
-Instalar en el sistema (binario + desktop entry + icono + metainfo):
+### Instalar en Fedora/Linux
 
 ```bash
 sudo cmake --install build
+# o equivalente:
+cd build && sudo ninja install
 ```
 
-Alternativa equivalente:
+Después de instalar, el ejecutable queda disponible como `classroom-vault` y aparece una entrada de menú **Classroom Vault** (KDE/GNOME).
 
-```bash
-cd build
-sudo ninja install
-```
-
-Despues de instalar:
-
-- Ejecutable disponible en terminal como:
-
-```bash
-classroom-vault
-```
-
-- Entrada de menu: **Classroom Vault** (KDE/GNOME).
-
-## Desinstalacion (opcional)
+<details>
+<summary><strong>Desinstalación</strong></summary>
 
 Si compilaste con Ninja:
 
@@ -217,7 +91,79 @@ cd build
 sudo ninja uninstall
 ```
 
-## Modo CLI
+</details>
+
+<details>
+<summary><strong>Compilar en Windows</strong></summary>
+
+**Prerrequisitos:**
+
+- [Qt 6.6+](https://www.qt.io/download) — seleccionar el componente **MSVC 2022 64-bit**.
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) con la carga de trabajo **Desktop development with C++**.
+- [CMake 3.20+](https://cmake.org/download/) y [Ninja](https://ninja-build.org/).
+
+```powershell
+# PowerShell — ajustar la ruta a Qt según tu instalación
+cmake -S . -B build -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.6.0\msvc2022_64"
+cmake --build build
+.\build\classroom-vault.exe
+```
+
+**Archivos de usuario en Windows:**
+
+| Tipo | Ruta |
+|---|---|
+| Configuración (`config.json`, `token.json`) | `%APPDATA%\ClassroomVault\` |
+| Cache / staging | `%LOCALAPPDATA%\ClassroomVault\` |
+
+**Distribución (ZIP portable):**
+
+Después de compilar, ejecuta `windeployqt` (incluido en Qt) para copiar las DLLs de Qt junto al ejecutable. Si CMake encontró `windeployqt` en el `PATH`, esto ocurre automáticamente en cada build de desarrollo.
+
+```powershell
+windeployqt --no-translations --no-quick-import .\build\classroom-vault.exe
+# Comprimir la carpeta build\ como ZIP y distribuir.
+```
+
+**Long paths (opcional):** si los paths completos de tus tareas superan 260 caracteres, habilita la política de paths largos en Windows 10/11:
+
+```
+HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1
+```
+
+</details>
+
+---
+
+## Uso
+
+### Navegación UI
+
+| Vista | Descripción |
+|---|---|
+| `Inicio` | Resumen de respaldo, KPIs, filtros y grid de materias. |
+| `Materia` | Lista de tareas del curso seleccionado, estado de metadata/adjuntos y acciones. |
+| `Tarea` | Previsualización local (título, descripción, fecha, estado, evidencia, adjuntos). |
+| `Actividad` | Panel desplegable para logs recientes. |
+| `Ruta` | Controles globales (cambiar ruta, abrir respaldo, sincronizar todo). |
+
+### Estados visuales de curso
+
+- `Completo`: todas las tareas detectadas con respaldo local.
+- `Pendiente`: faltan tareas por respaldar.
+- `Error`: inconsistencias o errores detectados durante procesos previos.
+- `Sin sync`: curso sin sincronización útil aún.
+
+### Estado de entrega de tareas
+
+- `Entregada` / `Expirada y entregada`: basado en `studentSubmissions` (`TURNED_IN`, `RETURNED`).
+- `No entregada`: solo con evidencia confiable de no entrega (`NEW`, `CREATED`, `RECLAIMED_BY_STUDENT`) y tarea vencida.
+- `Expirada` (neutral): cuando no hay evidencia confiable, para evitar marcar en rojo por inferencia.
+
+<details>
+<summary><strong>Modo CLI</strong></summary>
 
 Sincronizar carpetas con sample local:
 
@@ -231,92 +177,20 @@ Sincronizar y luego descargar adjuntos en CLI:
 ./classroom-vault --cli-sync --cli-download-attachments --base-path /ruta/del/disco --sample ../sample_classroom_data.json
 ```
 
-## APIs y scopes
+En Windows:
 
-### APIs
+```powershell
+.\build\classroom-vault.exe --cli-sync --base-path "C:\Respaldo\Tareas" --sample sample_classroom_data.json
+```
 
-- Google Classroom API
-- Google Drive API
+La app re-adjunta automáticamente stdout/stderr a la consola de PowerShell o cmd que la lanzó.
 
-Debes habilitar ambas en tu proyecto de Google Cloud Console.
+</details>
 
-### Scopes recomendados
+<details>
+<summary><strong>Estructura de salida en disco</strong></summary>
 
-- `https://www.googleapis.com/auth/classroom.courses.readonly`
-- `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
-- `https://www.googleapis.com/auth/classroom.student-submissions.me.readonly`
-- `https://www.googleapis.com/auth/drive.readonly`
-
-## Autenticacion OAuth automatica
-
-- Al presionar **Iniciar sesion**, la app levanta un servidor temporal local en `127.0.0.1` con puerto dinamico.
-- La app abre el navegador del sistema y envia a Google OAuth.
-- Google redirige a `http://127.0.0.1:<puerto>/callback?...`.
-- Classroom Vault captura el `code` automaticamente y cierra el servidor local.
-- Se muestra una pagina de exito en el navegador:
-  - `Autorizacion completada. Ya puedes volver a Classroom Vault.`
-- La app intercambia el `code` por `access_token` y `refresh_token` y guarda `token.json`.
-- En ejecuciones siguientes, si el token expiro y hay `refresh_token`, se refresca automaticamente sin abrir navegador.
-- Si falla el refresco, se solicita iniciar sesion nuevamente.
-- Timeout de autenticacion: `180` segundos.
-
-### Comportamiento al abrir la app
-
-- Primero restaura estado local desde `sync_state.json` para mostrar informacion aun sin red.
-- Luego revisa sesion guardada:
-  - si hay token valido, carga Classroom automaticamente;
-  - si el access token vencio y hay refresh token, intenta refrescar y cargar;
-  - si no hay sesion, queda en `No conectado`.
-- **No abre navegador automaticamente** si no hay sesion. El navegador solo se abre al presionar **Iniciar sesion**.
-
-### Configuracion de credenciales
-
-En `config.json` puedes usar:
-
-- `oauth.clientId` y `oauth.clientSecret` directamente, o
-- `oauth.credentialsFile` apuntando a un `credentials.json` de Google (`installed`).
-
-Si usas `credentialsFile`, la app toma automaticamente:
-
-- `client_id`
-- `client_secret`
-- `token_uri`
-- `redirect_uris` (cuando aplica)
-
-### Fallback manual
-
-Si por alguna razon no se puede iniciar el servidor local (`QTcpServer`), la app cambia a modo manual:
-
-1. Abre el navegador.
-2. Solicita pegar el `authorization code`.
-3. Continua con el intercambio de tokens.
-
-## Si ya tenias sesion previa sin Drive
-
-Si `token.json` fue creado antes de agregar `drive.readonly`, puede faltar permiso para adjuntos.
-
-1. Cierra la app.
-2. Borra `~/.config/ClassroomVault/token.json`.
-3. Abre la app.
-4. Inicia sesion de nuevo.
-5. Acepta permiso de Drive.
-
-Mensaje esperado cuando falta permiso:
-
-`Se requiere permiso de lectura de Drive. Borra token.json o cierra sesion y vuelve a iniciar sesion para autorizar Drive.`
-
-Tambien puedes usar el boton **Cerrar sesion** en la GUI para limpiar sesion local y volver a autorizar.
-
-Si agregaste el scope de submissions y ya tenias token viejo:
-
-1. Cierra la app.
-2. Borra `~/.config/ClassroomVault/token.json` (o usa **Cerrar sesion**).
-3. Inicia sesion de nuevo.
-4. Acepta el permiso actualizado.
-
-## Estructura de salida
-
-```text
+```
 Ruta base/
 └── Tareas/
     └── Semestre/
@@ -329,144 +203,258 @@ Ruta base/
                     └── Enlace - Referencia.url
 ```
 
-## Archivos de configuracion
+</details>
 
-- `~/.config/ClassroomVault/config.json`
-- `~/.config/ClassroomVault/token.json`
-- `~/.config/ClassroomVault/sync_state.json`
-- `~/.cache/ClassroomVault/` (cache temporal y staging)
+<details>
+<summary><strong>Columna "Tu trabajo"</strong></summary>
 
-`token.json` se guarda localmente y no debe subirse al repositorio.
+- En el detalle de tarea existe un panel lateral **Tu trabajo**.
+- Lista archivos y carpetas propios dentro de `../Tarea/`.
+- Ignora `metadata.json` y `Adjuntos/`.
+- Doble clic abre el archivo/carpeta local.
 
-Notas importantes:
+</details>
 
-- La instalacion **no** incluye `credentials.json`, `token.json`, `sync_state.json` ni otros datos privados del usuario.
-- `credentials.json` debe colocarse manualmente en `~/.config/ClassroomVault/` (o configurarse desde la app, si aplica).
-- Cambiar `CMAKE_INSTALL_PREFIX` permite instalar en `/usr` o rutas personalizadas.
+---
 
-## Descarga de adjuntos
+## Configuración
 
-- **Sincronizar todo** ahora tambien procesa adjuntos automaticamente.
-- Los adjuntos se guardan siempre en `../Tarea/Adjuntos/`.
-- Para `driveFile`:
-  - metadata: `files.get`
-  - binarios: `files.get?alt=media`
-  - Google Workspace: `files.export`
-- Para `link`, `youtubeVideo`, `form`:
-  - se guarda `.url` en carpeta `Adjuntos/`.
+### APIs y scopes
 
-## Sincronizacion con staging
+**APIs necesarias** (habilitar en Google Cloud Console):
+- Google Classroom API
+- Google Drive API
 
-Flujo de `Sincronizar todo`:
+**Scopes recomendados:**
+- `https://www.googleapis.com/auth/classroom.courses.readonly`
+- `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
+- `https://www.googleapis.com/auth/classroom.student-submissions.me.readonly`
+- `https://www.googleapis.com/auth/drive.readonly`
 
-1. Fetch remoto de Classroom.
-2. Guardado de metadata nueva en staging temporal.
-3. Manifest por curso con estado `complete/incomplete`.
-4. Diff staging vs `sync_state.json` (`new/updated/same/deleted_archived/restored`).
-5. Aplicacion de cambios en `metadata.json` y `sync_state.json`.
-6. Procesamiento de adjuntos.
+### Archivos de configuración
 
-Flujo de `Sincronizar materia`:
+| Archivo | Ruta |
+|---|---|
+| `config.json`, `token.json` | `~/.config/ClassroomVault/` |
+| `sync_state.json` | `~/.config/ClassroomVault/` |
+| Cache / staging | `~/.cache/ClassroomVault/` |
 
-- Solo consulta y aplica cambios para ese curso.
-- No modifica otras materias.
-- No descarga adjuntos de otras materias.
+En `config.json` puedes usar:
+- `oauth.clientId` y `oauth.clientSecret` directamente, o
+- `oauth.credentialsFile` apuntando a un `credentials.json` de Google (`installed`).
 
-Regla clave:
+> Nota: ninguno de estos archivos se instala con `cmake install` ni se sube al repositorio — están en `.gitignore`. `credentials.json` debe colocarse manualmente en `~/.config/ClassroomVault/`.
 
-- La metadata nueva en staging tiene prioridad para esa sesion de sync.
-- Si el fetch de un curso es `incomplete`, no se detectan eliminadas para ese curso.
-- Los cambios normales (tareas nuevas o actualizadas) deben reflejarse sin flush manual.
+<details>
+<summary><strong>Autenticación OAuth automática (detalle del flujo)</strong></summary>
 
-## Cambio de ruta base en caliente
+- Al presionar **Iniciar sesión**, la app levanta un servidor temporal local en `127.0.0.1` con puerto dinámico.
+- La app abre el navegador del sistema y envía a Google OAuth.
+- Google redirige a `http://127.0.0.1:<puerto>/callback?...`.
+- Classroom Vault captura el `code` automáticamente y cierra el servidor local.
+- Se muestra una página de éxito: *"Autorización completada. Ya puedes volver a Classroom Vault."*
+- La app intercambia el `code` por `access_token` y `refresh_token`, y guarda `token.json`.
+- En ejecuciones siguientes, si el token expiró y hay `refresh_token`, se refresca automáticamente sin abrir navegador.
+- Si falla el refresco, se solicita iniciar sesión nuevamente.
+- Timeout de autenticación: **180 segundos**.
 
-- Al cambiar la ruta base desde la UI, se aplica **sin reiniciar**.
-- La siguiente sincronizacion usa inmediatamente la ruta nueva.
-- No se mueven ni se borran datos de la ruta anterior de forma automatica.
-- Si existe estado previo en `sync_state.json` apuntando a otra ruta, solo se reutilizan rutas previas que esten dentro de la base activa.
+**Comportamiento al abrir la app:**
+1. Primero restaura el estado local desde `sync_state.json` (info disponible aun sin red).
+2. Luego revisa la sesión guardada: token válido → carga Classroom automáticamente; token vencido con refresh token → intenta refrescar; sin sesión → queda en `No conectado`.
+3. **No abre navegador automáticamente** si no hay sesión — solo al presionar **Iniciar sesión**.
 
-## Estado de entrega de tareas
+**Fallback manual** (si no se puede iniciar `QTcpServer` local):
+1. Abre el navegador.
+2. Solicita pegar el `authorization code`.
+3. Continúa con el intercambio de tokens.
 
-- Classroom Vault usa `studentSubmissions` cuando estan disponibles para determinar entrega real.
-- `TURNED_IN` y `RETURNED` se muestran como:
-  - `Entregada` (vigente)
-  - `Expirada y entregada` (si ya vencio)
-- `No entregada` solo se muestra con evidencia confiable de no entrega (`NEW`, `CREATED`, `RECLAIMED_BY_STUDENT`) y tarea vencida.
-- Si no hay evidencia confiable de submissions, la app evita marcar en rojo por inferencia y usa estado neutral (`Expirada`).
+</details>
 
-### Exportaciones Workspace
+---
 
-- Google Docs (`application/vnd.google-apps.document`) -> `.docx`
-- Google Sheets (`application/vnd.google-apps.spreadsheet`) -> `.xlsx`
-- Google Slides (`application/vnd.google-apps.presentation`) -> `.pptx`
-- Google Drawings (`application/vnd.google-apps.drawing`) -> `.png`
-- Google Forms (`application/vnd.google-apps.form`) -> `.url` (enlace, no export binario)
-- Otros `application/vnd.google-apps.*` no exportables -> `.url` con `webViewLink` cuando exista
+## Seguridad y protección de datos
 
-## Reglas de deduplicacion (actual)
+> Estas son las garantías clave que hacen de esta app una herramienta segura para respaldo histórico, no solo un sincronizador más.
 
-- Si `sync_state.json` indica mismo `modifiedTime` y existe `localPath`, se omite.
-- Si hay `md5Checksum`, se compara hash local para omitir/reemplazar.
-- Si no hay hash pero hay tamano remoto, se compara tamano para omitir/reemplazar.
+<details open>
+<summary><strong>Protección de evidencia académica</strong></summary>
+
+Las tareas marcadas como **"Eliminada y archivada"** (`isArchivedDeleted`) son evidencia histórica protegida:
+
+- Su `metadata.json`, `Adjuntos/` y archivos del usuario **nunca se sobrescriben ni borran automáticamente**.
+- No son procesadas por `syncFolders()`, `downloadAttachments()` ni `onChecksumFailed()`.
+- No se cargan en el estado activo en memoria al iniciar la app (`loadLocalStateIntoMemory` las omite).
+- Solo se restauran explícitamente si Classroom vuelve a devolver el mismo `assignmentId` en un fetch completo y exitoso.
+- Una tarea se marca como eliminada solo si el fetch del curso fue **completo** (`fetchStatus: complete`). Un fetch incompleto nunca genera archivaciones.
+- El `.archived_deleted.json` dentro de la carpeta de tarea es un marcador adicional de protección.
+
+Logs de protección visibles en la app: `[ARCH]`
+
+</details>
+
+<details>
+<summary><strong>Sesión de Google</strong></summary>
+
+- `token.json` y `credentials.json` se guardan en `~/.config/ClassroomVault/` (ruta de usuario).
+- Estos archivos **no se instalan** con `cmake install`, no se suben al repositorio y están en `.gitignore`.
+- El `access_token` **no se imprime completo en logs**.
+- Si el `access_token` expira, se refresca automáticamente con el `refresh_token` (`[AUTH] Access token refrescado...`).
+- Si el `refresh_token` falla, se limpia la sesión y se solicita nuevo inicio de sesión (`[AUTH] La sesión expiró...`).
+- El cierre de sesión borra el token local pero no borra la configuración ni los respaldos de tareas.
+
+</details>
+
+<details>
+<summary><strong>Validación de ruta base</strong></summary>
+
+Antes de cada sincronización (`syncAll`, `syncCourse`, `syncFolders`), se valida la ruta base:
+
+- Si está vacía, no existe, no es directorio, o no tiene permisos de escritura → la sync se cancela.
+- **No se usa fallback silencioso** a ninguna otra ruta.
+- El `sync_state.json` no se actualiza como si la sync hubiera ocurrido.
+- El usuario recibe un mensaje claro: `[SEC] Ruta base no existe: /ruta. Sincronización cancelada.`
+
+Esto protege de sincronizaciones accidentales cuando el disco externo está desmontado.
+
+</details>
+
+<details>
+<summary><strong>Prefijos de log</strong></summary>
+
+| Prefijo | Significado |
+|---|---|
+| `[SEC]` | Validación de seguridad (ruta base, permisos) |
+| `[AUTH]` | Autenticación y tokens de Google |
+| `[ARCH]` | Protección de tarea archivada o restauración |
+| `[STAGE]` | Escritura de staging temporal |
+| `DIFF` | Resultado del diff staging vs estado persistente |
+| `ERR` | Error general |
+
+</details>
+
+---
+
+## Sincronización (detalle técnico)
+
+<details>
+<summary><strong>Staging de metadata</strong></summary>
+
+Cada sincronización completa (`syncAll`/`syncCourse`) crea un staging temporal en `~/.cache/ClassroomVault/sync_staging/`:
+
+1. Se obtiene metadata fresca de Classroom.
+2. Se escribe en staging (nunca directo al estado persistente).
+3. Se crea un manifest por curso con `fetchStatus: complete/incomplete`.
+4. Se hace diff de staging vs `sync_state.json`.
+5. Solo después se aplican cambios en disco y se actualizan `metadata.json` y `sync_state.json`.
+6. Solo después se procesan adjuntos.
+
+La metadata nueva de Classroom tiene prioridad sobre la local en todos los casos, **excepto** para tareas archivadas.
+
+**Flujo de `Sincronizar materia`:** solo consulta y aplica cambios para ese curso — no modifica ni descarga adjuntos de otras materias.
+
+</details>
+
+<details>
+<summary><strong>Reglas de deduplicación</strong></summary>
+
+- Si `sync_state.json` indica el mismo `modifiedTime` y existe `localPath`, se omite.
+- Si hay `md5Checksum`, se compara el hash local para omitir/reemplazar.
+- Si no hay hash pero hay tamaño remoto, se compara tamaño para omitir/reemplazar.
 - Si cambia, se vuelve a descargar/exportar y reemplaza el archivo local.
-- Estado de adjuntos se guarda por tarea en `sync_state.json`.
-- `metadata.json` de cada tarea se actualiza con una seccion `attachments` basada en el estado sincronizado.
-- `metadata.json` no se reescribe si su hash (`metadataHash`) no cambio.
-- Si falta carpeta/metadata/adjunto local previamente registrado, se marca como `MISS` y se repara en la siguiente sincronizacion.
+- El estado de adjuntos se guarda por tarea en `sync_state.json`.
+- `metadata.json` se actualiza con una sección `attachments`, y **no se reescribe** si su hash (`metadataHash`) no cambió.
+- Si falta carpeta/metadata/adjunto local previamente registrado, se marca como `MISS` y se repara en la siguiente sincronización.
 
-## Checksums de adjuntos
+</details>
 
-- Despues de procesar adjuntos, la app genera `../Tarea/Adjuntos/.checksum` con `SHA256`.
+<details>
+<summary><strong>Checksums de adjuntos</strong></summary>
+
+- Después de procesar adjuntos, la app genera `../Tarea/Adjuntos/.checksum` con **SHA256**.
 - Al abrir la app, se verifica en segundo plano el checksum de tareas conocidas.
-- Si falla un archivo, se intenta re-descargar solo ese adjunto (no descarga masiva).
+- Si falla un archivo, se intenta re-descargar **solo ese adjunto** (no descarga masiva).
 - Si no se puede mapear el archivo fallido a un adjunto remoto, se registra error y se conserva el resto del estado.
 
-## Reconstruccion segura de indice local
+</details>
 
-- Menu de cuenta -> **Reconstruir indice local**.
+<details>
+<summary><strong>Cambio de ruta base en caliente</strong></summary>
+
+- Al cambiar la ruta base desde la UI, se aplica **sin reiniciar**.
+- La siguiente sincronización usa inmediatamente la ruta nueva.
+- No se mueven ni se borran datos de la ruta anterior de forma automática.
+- Si existe estado previo en `sync_state.json` apuntando a otra ruta, solo se reutilizan rutas previas que estén dentro de la base activa.
+
+</details>
+
+<details>
+<summary><strong>Reconstrucción segura de índice local</strong></summary>
+
+- Menú de cuenta → **Reconstruir índice local**.
 - Hace backup de `sync_state.json` como `sync_state.json.bak.<timestamp>`.
 - Limpia y reconstruye el estado interno desde Classroom + disco.
 - No borra carpetas de tareas, no borra `Adjuntos/`, no borra archivos personales del usuario.
-- Es una herramienta de recuperacion, no parte del flujo normal de sincronizacion.
+- Es una herramienta de recuperación, no parte del flujo normal de sincronización.
 
-## Columna "Tu trabajo"
+</details>
 
-- En detalle de tarea existe panel lateral **Tu trabajo**.
-- Lista archivos y carpetas propios dentro de `../Tarea/`.
-- Ignora `metadata.json` y `Adjuntos/`.
-- Doble clic abre archivo/carpeta local.
+<details>
+<summary><strong>Eventos de log incremental y contadores en GUI</strong></summary>
 
-### Eventos de log incremental
+**Eventos:**
 
-- `NEW`: tarea nueva detectada.
-- `SAME`: sin cambios de metadata.
-- `UPD`: metadata actualizada.
-- `SKIP`: adjunto sin cambios.
-- `MISS`: faltante local detectado.
-- `ERR`: error de sincronizacion/descarga/exportacion.
+| Evento | Significado |
+|---|---|
+| `NEW` | Tarea nueva detectada. |
+| `SAME` | Sin cambios de metadata. |
+| `UPD` | Metadata actualizada. |
+| `SKIP` | Adjunto sin cambios. |
+| `MISS` | Faltante local detectado. |
+| `ERR` | Error de sincronización/descarga/exportación. |
 
-### Contadores en GUI
-
+**Contadores en GUI:**
 - Archivos descargados (binarios de Drive)
 - Google exportados (Workspace exportado)
 - Links guardados (`.url`)
 - Adjuntos omitidos
 - Errores adjuntos
 
+</details>
+
+<details>
+<summary><strong>Preview con metadata</strong></summary>
+
+- La vista de detalle de tarea usa `metadata.json` como fuente principal.
+- Si no existe `metadata.json`, la app construye un preview de respaldo usando `sync_state.json` y datos cargados.
+- Los adjuntos se muestran como tarjetas con acciones: abrir archivo local, abrir carpeta, abrir enlace original.
+
+</details>
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>Drive devuelve 403 / la app pide permisos viejos</strong></summary>
+
+**Problema:** si `token.json` fue creado antes de agregar `drive.readonly` (o el scope de submissions), puede faltar permiso para adjuntos.
+
+**Solución:**
+1. Cierra la app.
+2. Borra `~/.config/ClassroomVault/token.json` (o usa el botón **Cerrar sesión** en la GUI).
+3. Abre la app e inicia sesión de nuevo.
+4. Acepta los permisos actualizados.
+
+Mensaje esperado cuando falta permiso de Drive:
+
+> `Se requiere permiso de lectura de Drive. Borra token.json o cierra sesión y vuelve a iniciar sesión para autorizar Drive.`
+
+</details>
+
+---
+
 ## Limitaciones actuales
 
 - No hay cola paralela avanzada de descargas (procesamiento secuencial).
-- No hay selector fino de politica de versionado (actualmente reemplaza cuando detecta cambio).
-- Si `files.export` falla por limites/permisos y existe enlace de vista, se guarda `.url` como respaldo.
-
-## Troubleshooting OAuth
-
-Problema: la app sigue pidiendo permisos viejos o Drive devuelve 403.
-
-Solucion:
-
-1. Cierra la app.
-2. Borra `~/.config/ClassroomVault/token.json` o usa **Cerrar sesion**.
-3. Abre la app.
-4. Inicia sesion de nuevo.
-5. Acepta los permisos actualizados.
+- No hay selector fino de política de versionado (actualmente reemplaza cuando detecta cambio).
+- Si `files.export` falla por límites/permisos y existe enlace de vista, se guarda `.url` como respaldo.
