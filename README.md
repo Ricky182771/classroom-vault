@@ -23,7 +23,8 @@ Aplicación de escritorio en **C++20 + Qt6** para sincronizar Google Classroom y
 
 - OAuth 2.0 para app de escritorio con **login automático por navegador + loopback local** (`127.0.0.1`).
 - Lectura de cursos activos y tareas desde Classroom API.
-- Creación y actualización de carpetas/`metadata.json`.
+- Respaldo de **publicaciones del curso** (anuncios y materiales de clase) en `_Publicaciones/`.
+- Creación y actualización de carpetas, `metadata.json` y `descripcion.md`.
 - Estado persistente en `sync_state.json` para evitar duplicados.
 - Restauración de estado local al iniciar (cursos/tareas desde `sync_state.json`).
 - Carga automática de Classroom al abrir si existe sesión válida (sin abrir navegador automáticamente).
@@ -193,15 +194,44 @@ La app re-adjunta automáticamente stdout/stderr a la consola de PowerShell o cm
 ```
 Ruta base/
 └── Tareas/
-    └── Semestre/
+    └── Semestre N/
         └── Materia/
-            └── YYYY-MM-DD - Nombre de tarea/
-                ├── metadata.json
-                └── Adjuntos/
-                    ├── archivo.pdf
-                    ├── documento.docx
-                    └── Enlace - Referencia.url
+            ├── YYYY-MM-DD - Nombre de tarea/
+            │   ├── metadata.json
+            │   ├── descripcion.md
+            │   ├── Adjuntos/
+            │   │   ├── archivo.pdf
+            │   │   ├── documento.docx
+            │   │   └── Enlace - Referencia.url
+            │   └── (archivos propios del usuario)
+            ├── Sin fecha - Nombre de tarea/
+            │   ├── metadata.json
+            │   └── descripcion.md
+            └── _Publicaciones/
+                ├── Aviso - Primeras palabras del anuncio/
+                │   ├── metadata.json
+                │   └── descripcion.md
+                └── Material - Titulo del material/
+                    ├── metadata.json
+                    └── descripcion.md
 ```
+
+### Convenciones de nombres
+
+| Patrón | Significado |
+|---|---|
+| `YYYY-MM-DD - Titulo` | Tarea con fecha de entrega. |
+| `Sin fecha - Titulo` | Tarea sin `dueDate` en Classroom. |
+| `Aviso - Texto` | Anuncio del curso (`announcements`). El nombre usa un extracto del texto, truncado. |
+| `Material - Titulo` | Material de clase (`courseWorkMaterials`). |
+| `... [123456]` | Sufijo de desambiguación cuando dos elementos generarían el mismo nombre de carpeta. |
+
+### Archivos por carpeta
+
+- `metadata.json` — fuente principal para la vista de detalle.
+- `descripcion.md` — descripción del elemento en formato legible.
+- `Adjuntos/` — solo se crea si el elemento tiene adjuntos.
+- Cualquier otro archivo en la carpeta se considera **trabajo propio del usuario** y nunca se toca durante la sincronización.
 
 </details>
 
@@ -210,7 +240,7 @@ Ruta base/
 
 - En el detalle de tarea existe un panel lateral **Tu trabajo**.
 - Lista archivos y carpetas propios dentro de `../Tarea/`.
-- Ignora `metadata.json` y `Adjuntos/`.
+- Ignora `metadata.json`, `descripcion.md` y `Adjuntos/`.
 - Doble clic abre el archivo/carpeta local.
 
 </details>
@@ -225,11 +255,18 @@ Ruta base/
 - Google Classroom API
 - Google Drive API
 
-**Scopes recomendados:**
-- `https://www.googleapis.com/auth/classroom.courses.readonly`
-- `https://www.googleapis.com/auth/classroom.coursework.me.readonly`
-- `https://www.googleapis.com/auth/classroom.student-submissions.me.readonly`
-- `https://www.googleapis.com/auth/drive.readonly`
+**Scopes requeridos:**
+
+| Scope | Para qué se usa |
+|---|---|
+| `classroom.courses.readonly` | Lectura de cursos activos. |
+| `classroom.coursework.me.readonly` | Lectura de tareas. |
+| `classroom.student-submissions.me.readonly` | Estado real de entrega (`Entregada`/`No entregada`). |
+| `classroom.announcements.readonly` | Respaldo de publicaciones del curso. |
+| `classroom.courseworkmaterials.readonly` | Materiales de clase asociados a los cursos. |
+| `drive.readonly` | Descarga de adjuntos y exportación de Google Workspace. |
+
+Prefijo completo: `https://www.googleapis.com/auth/`
 
 ### Archivos de configuración
 
@@ -239,11 +276,33 @@ Ruta base/
 | `sync_state.json` | `~/.config/ClassroomVault/` |
 | Cache / staging | `~/.cache/ClassroomVault/` |
 
-En `config.json` puedes usar:
-- `oauth.clientId` y `oauth.clientSecret` directamente, o
-- `oauth.credentialsFile` apuntando a un `credentials.json` de Google (`installed`).
+### Credenciales OAuth
 
-> Nota: ninguno de estos archivos se instala con `cmake install` ni se sube al repositorio — están en `.gitignore`. `credentials.json` debe colocarse manualmente en `~/.config/ClassroomVault/`.
+Los builds oficiales incluyen credenciales embebidas, así que **no necesitas configurar nada** para usar la app. Si prefieres usar tu propio proyecto de Google Cloud (por cuota, privacidad o desarrollo), puedes sobrescribirlas.
+
+Orden de prioridad:
+
+1. `oauth.clientId` y `oauth.clientSecret` en `config.json`.
+2. `oauth.credentialsFile` apuntando a un `credentials.json` de Google (tipo `installed`).
+3. Credenciales embebidas en tiempo de compilación (fallback).
+
+El origen efectivo se registra al iniciar sesión: `[AUTH] Credenciales cargadas (origen: ...)`.
+
+<details>
+<summary><strong>Compilar con credenciales propias embebidas</strong></summary>
+
+```bash
+export CV_OAUTH_CLIENT_ID="tu-client-id.apps.googleusercontent.com"
+export CV_OAUTH_CLIENT_SECRET="tu-client-secret"
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+Sin estas variables, el build no contiene ninguna credencial y la app requiere que el usuario configure las suyas en `config.json`.
+
+</details>
+
+> Nota: ninguno de estos archivos se instala con `cmake install` ni se sube al repositorio — están en `.gitignore`. Si usas tu propio `credentials.json`, colócalo manualmente en `~/.config/ClassroomVault/`.
 
 <details>
 <summary><strong>Autenticación OAuth automática (detalle del flujo)</strong></summary>
