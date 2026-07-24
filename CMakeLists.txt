@@ -155,6 +155,11 @@ if(WIN32)
             VERBATIM
         )
     endif()
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/installer/classroom-vault.iss.in"
+        "${CMAKE_BINARY_DIR}/installer/classroom-vault.iss"
+        @ONLY
+    )
 endif()
 
 configure_file(

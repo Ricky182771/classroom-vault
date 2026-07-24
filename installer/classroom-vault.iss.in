@@ -1,0 +1,71 @@
+#define AppName "Classroom Vault"
+#define AppVersion "@PROJECT_VERSION@"
+#define AppPublisher "Ricky182771"
+#define AppURL "https://github.com/Ricky182771/classroom-vault"
+#define AppExeName "classroom-vault.exe"
+
+[Setup]
+AppId={{8F3A2C14-6B9D-4E7A-A1F5-2D8C90B4E763}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+AppPublisherURL={#AppURL}
+AppSupportURL={#AppURL}/issues
+DefaultDirName={autopf}\{#AppName}
+DefaultGroupName={#AppName}
+UninstallDisplayIcon={app}\{#AppExeName}
+OutputDir=@CMAKE_SOURCE_DIR@/dist
+OutputBaseFilename=classroom-vault-{#AppVersion}-setup
+Compression=lzma2/max
+SolidCompression=yes
+SetupIconFile=@CMAKE_SOURCE_DIR@/resources/icons/classroom-vault.ico
+WizardStyle=modern
+PrivilegesRequired=admin
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[Languages]
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; \
+    GroupDescription: "Accesos directos adicionales:"
+
+[Files]
+Source: "@CMAKE_SOURCE_DIR@/dist/classroom-vault/*"; DestDir: "{app}"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#AppExeName}"; \
+    Description: "Ejecutar {#AppName}"; \
+    Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ConfigDir: String;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    ConfigDir := ExpandConstant('{userappdata}\ClassroomVault');
+    if DirExists(ConfigDir) then
+    begin
+      if MsgBox('¿Deseas eliminar también la configuración y la sesión de Google?' + #13#10 + #13#10 +
+                'Esto borrará ' + ConfigDir + ', incluyendo tu configuración y el inicio de sesión.' + #13#10 + #13#10 +
+                'Tus tareas y adjuntos respaldados NO se borrarán.',
+                mbConfirmation, MB_YESNO) = IDYES then
+      begin
+        DelTree(ConfigDir, True, True, True);
+      end;
+    end;
+
+    ConfigDir := ExpandConstant('{localappdata}\ClassroomVault');
+    if DirExists(ConfigDir) then
+      DelTree(ConfigDir, True, True, True);
+  end;
+end;
