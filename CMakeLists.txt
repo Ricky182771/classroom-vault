@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(ClassroomVault VERSION 0.1.0 LANGUAGES CXX)
+project(ClassroomVault VERSION 0.1.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
