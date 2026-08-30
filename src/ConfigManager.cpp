@@ -55,6 +55,11 @@ void applyOAuthCredentialsFile(QJsonObject &oauth, const QString &configDir)
     }
 }
 
+QString noSemesterSentinel()
+{
+    return QStringLiteral("Sin semestre");
+}
+
 QString embeddedClientId()
 {
 #ifdef CV_EMBEDDED_CLIENT_ID
@@ -88,6 +93,7 @@ void ConfigManager::loadDefaults()
     m_legacyCourseSemestersByName.clear();
     m_globalSemesterFilter = QStringLiteral("Todos los semestres");
     m_defaultSemester.clear();
+    m_archivedSemesters.clear();
 
     QJsonArray defaultScopes;
     defaultScopes.append(QStringLiteral("https://www.googleapis.com/auth/classroom.courses.readonly"));
@@ -183,6 +189,17 @@ bool ConfigManager::load()
         }
     }
 
+    // Config antigua sin la clave: el conjunto queda vacio y todos los semestres siguen activos.
+    m_archivedSemesters.clear();
+    const QJsonArray archivedSemesters = root.value(QStringLiteral("archivedSemesters")).toArray();
+    for (const QJsonValue &value : archivedSemesters) {
+        const QString name = value.toString().trimmed();
+        if (name.isEmpty() || name == noSemesterSentinel()) {
+            continue;
+        }
+        m_archivedSemesters.insert(name);
+    }
+
     const QJsonObject legacyByName = root.value(QStringLiteral("courseSemestersByName")).toObject();
     for (auto it = legacyByName.begin(); it != legacyByName.end(); ++it) {
         const QString key = it.key().trimmed();
@@ -216,11 +233,19 @@ bool ConfigManager::save() const
         legacyCourseSemestersByName.insert(it.key(), it.value());
     }
 
+    // Orden estable para que guardados sucesivos no generen diffs espurios.
+    QStringList archivedList = archivedSemesters();
+    QJsonArray archivedSemestersArray;
+    for (const QString &semester : archivedList) {
+        archivedSemestersArray.append(semester);
+    }
+
     QJsonObject root;
     root.insert(QStringLiteral("basePath"), m_basePath);
     root.insert(QStringLiteral("courseSemesters"), courseSemesters);
     root.insert(QStringLiteral("globalSemesterFilter"), m_globalSemesterFilter);
     root.insert(QStringLiteral("defaultSemester"), m_defaultSemester);
+    root.insert(QStringLiteral("archivedSemesters"), archivedSemestersArray);
     if (!legacyCourseSemestersByName.isEmpty()) {
         root.insert(QStringLiteral("courseSemestersByName"), legacyCourseSemestersByName);
     }
@@ -301,6 +326,38 @@ void ConfigManager::setDefaultSemester(const QString &semester)
 void ConfigManager::clearLegacySemesterForCourseName(const QString &courseName)
 {
     m_legacyCourseSemestersByName.remove(courseName);
+}
+
+bool ConfigManager::isSemesterArchived(const QString &semester) const
+{
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty() || clean == noSemesterSentinel()) {
+        return false;
+    }
+    return m_archivedSemesters.contains(clean);
+}
+
+bool ConfigManager::archiveSemester(const QString &semester)
+{
+    // Mutacion solo en memoria: el llamador decide cuando persistir con save().
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty() || clean == noSemesterSentinel()) {
+        return false;
+    }
+    m_archivedSemesters.insert(clean);
+    return true;
+}
+
+QStringList ConfigManager::archivedSemesters() const
+{
+    QStringList semesters(m_archivedSemesters.constBegin(), m_archivedSemesters.constEnd());
+    semesters.sort();
+    return semesters;
+}
+
+bool ConfigManager::isCourseArchived(const QString &courseId) const
+{
+    return isSemesterArchived(semesterForCourse(courseId));
 }
 
 QString ConfigManager::oauthClientId() const

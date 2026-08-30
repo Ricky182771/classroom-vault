@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -31,6 +32,11 @@ public:
     QString legacySemesterForCourseName(const QString &courseName) const;
     void clearLegacySemesterForCourseName(const QString &courseName);
 
+    bool isSemesterArchived(const QString &semester) const;
+    bool archiveSemester(const QString &semester);
+    QStringList archivedSemesters() const;
+    bool isCourseArchived(const QString &courseId) const;
+
     QString oauthClientId() const;
     QString oauthClientSecret() const;
     QString oauthRedirectUri() const;
@@ -56,5 +62,6 @@ private:
     QHash<QString, QString> m_legacyCourseSemestersByName;
     QString m_globalSemesterFilter;
     QString m_defaultSemester;
+    QSet<QString> m_archivedSemesters;
     QJsonObject m_oauth;
 };

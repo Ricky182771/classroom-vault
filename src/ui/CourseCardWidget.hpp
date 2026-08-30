@@ -31,6 +31,7 @@ private:
 
     QFrame *m_banner = nullptr;
     QLabel *m_statusBadge = nullptr;
+    QLabel *m_archivedBadge = nullptr;
     QLabel *m_nameLabel = nullptr;
     QLabel *m_codeLabel = nullptr;
     QLabel *m_semesterLabel = nullptr;

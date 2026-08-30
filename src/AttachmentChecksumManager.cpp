@@ -119,6 +119,16 @@ void AttachmentChecksumManager::setSyncStateManager(SyncStateManager *syncStateM
     m_syncStateManager = syncStateManager;
 }
 
+void AttachmentChecksumManager::setArchivedCourseIds(const QSet<QString> &archivedCourseIds)
+{
+    m_archivedCourseIds = archivedCourseIds;
+}
+
+void AttachmentChecksumManager::setArchivedPathRoots(const QStringList &archivedPathRoots)
+{
+    m_archivedPathRoots = archivedPathRoots;
+}
+
 void AttachmentChecksumManager::verifyAllKnownAttachments()
 {
     if (!m_syncStateManager) {
@@ -134,6 +144,11 @@ void AttachmentChecksumManager::verifyAllKnownAttachments()
 
     const QStringList courseIds = m_syncStateManager->courseIds();
     for (const QString &courseId : courseIds) {
+        if (m_archivedCourseIds.contains(courseId)) {
+            emit checksumLog(QStringLiteral("[ARCH] Semestre archivado en solo lectura. Se omite verificacion de checksums: %1").arg(courseId));
+            continue;
+        }
+
         const QStringList assignmentIds = m_syncStateManager->assignmentIds(courseId);
         for (const QString &assignmentId : assignmentIds) {
             verifyForAssignment(courseId, assignmentId);
@@ -147,9 +162,22 @@ void AttachmentChecksumManager::verifyForAssignment(const QString &courseId, con
         return;
     }
 
+    // Guard: semestre archivado en solo lectura. Se ignora todo nodo hijo (materia/tarea).
+    if (m_archivedCourseIds.contains(courseId)) {
+        return;
+    }
+
     const QString assignmentFolderPath = m_syncStateManager->assignmentFolderPath(courseId, assignmentId).trimmed();
     if (assignmentFolderPath.isEmpty()) {
         return;
+    }
+
+    // Guard por ruta: no se lee ni se regenera .checksum dentro de un semestre archivado.
+    const QString cleanFolderPath = QDir::cleanPath(assignmentFolderPath);
+    for (const QString &archivedRoot : m_archivedPathRoots) {
+        if (cleanFolderPath == archivedRoot || cleanFolderPath.startsWith(archivedRoot + QLatin1Char('/'))) {
+            return;
+        }
     }
 
     VerifyTask task;

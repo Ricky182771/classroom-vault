@@ -176,6 +176,18 @@ QJsonObject SyncStateManager::courseState(const QString &courseId) const
     return courseObject(courseId);
 }
 
+void SyncStateManager::setCourseStateRaw(const QString &courseId, const QJsonObject &courseState)
+{
+    const QString cleanCourseId = courseId.trimmed();
+    if (cleanCourseId.isEmpty() || courseState.isEmpty()) {
+        return;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    courses.insert(cleanCourseId, courseState);
+    m_root.insert(QStringLiteral("courses"), courses);
+}
+
 QString SyncStateManager::courseFolderPath(const QString &courseId) const
 {
     return courseObject(courseId).value(QStringLiteral("folderPath")).toString();

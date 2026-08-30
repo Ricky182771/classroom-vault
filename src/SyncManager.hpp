@@ -15,6 +15,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <QSet>
 #include <QStringList>
 
 class SyncManager : public QObject {
@@ -41,6 +42,10 @@ public:
     void setGlobalSemesterFilter(const QString &semester);
     QString defaultSemester() const;
     void setDefaultSemester(const QString &semester);
+    bool isSemesterArchived(const QString &semester) const;
+    bool isCourseArchived(const QString &courseId) const;
+    QStringList archivedSemesters() const;
+    bool archiveSemester(const QString &semester);
     QString ensureSemesterFolderExists(const QString &semester);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
@@ -94,6 +99,7 @@ signals:
     void logMessage(const QString &message);
     void errorOccurred(const QString &message);
     void syncStateChanged();
+    void semesterArchivedChanged(const QString &semester);
 
 private slots:
     void onCoursesFetched(const QList<Course> &courses);
@@ -122,6 +128,11 @@ private:
     void refreshAuthConfig();
     void startFetchingCourses();
     bool loadLocalStateIntoMemory(bool logOnFailure = true);
+    bool buildCourseFromLocalState(const QString &courseId, Course *course) const;
+    QList<Assignment> loadLocalAssignmentsForCourse(const QString &courseId) const;
+    // Semestres archivados: respaldo local en solo lectura, desconectado de Classroom.
+    void mergeArchivedLocalCourses();
+    QSet<QString> archivedCourseIds() const;
     QJsonObject buildMetadata(const Course &course, const Assignment &assignment) const;
     void resetSyncOperationState();
     void startSyncAllInternal();
@@ -132,6 +143,8 @@ private:
     void applyStagedDiffForScope();
     Course resolveCourseForSync(const QString &courseId) const;
     Assignment findStagedAssignment(const QString &courseId, const QString &assignmentId) const;
+    QStringList archivedSemesterRoots() const;
+    bool pathIsUnderArchivedSemester(const QString &path) const;
     bool ensureCourseAndAssignmentPaths(
         const Course &course,
         const Assignment &assignment,

@@ -38,6 +38,14 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     m_titleLabel->setStyleSheet(QStringLiteral("font-size:18px;font-weight:700;background:transparent;border:none;"));
     topRow->addWidget(m_titleLabel, 1);
 
+    m_archivedBadge = new QLabel(QStringLiteral("\U0001F512 Archivado \u00b7 solo lectura"), headerCard);
+    m_archivedBadge->setToolTip(QStringLiteral("Semestre archivado: solo lectura"));
+    m_archivedBadge->setStyleSheet(
+        QStringLiteral("padding:4px 9px;border-radius:9px;font-size:12px;color:#E6C26A;"
+                       "background:rgba(230,194,106,0.16);border:1px solid rgba(255,255,255,0.12);"));
+    m_archivedBadge->setVisible(false);
+    topRow->addWidget(m_archivedBadge);
+
     m_statusLabel = new QLabel(QStringLiteral("Sin sync"), headerCard);
     m_statusLabel->setProperty("muted", true);
     topRow->addWidget(m_statusLabel);
@@ -53,13 +61,8 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     semesterEditLabel->setProperty("subtle", true);
     semesterRow->addWidget(semesterEditLabel);
     m_semesterCombo = new QComboBox(headerCard);
+    // Contenido inicial minimo: MainWindow lo repuebla con los semestres reales.
     m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 1"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 2"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 3"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 4"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 5"));
-    m_semesterCombo->addItem(QStringLiteral("Semestre 6"));
     semesterRow->addWidget(m_semesterCombo);
     semesterRow->addStretch(1);
     headerLayout->addLayout(semesterRow);
@@ -157,6 +160,39 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     });
 }
 
+void CourseDetailWidget::setAvailableSemesters(const QStringList &semesters)
+{
+    QStringList items;
+    items << QStringLiteral("Sin semestre");
+    for (const QString &semester : semesters) {
+        const QString clean = semester.trimmed();
+        if (!clean.isEmpty() && !items.contains(clean)) {
+            items.append(clean);
+        }
+    }
+
+    const QString previous = m_semesterCombo->currentText().trimmed();
+    if (!previous.isEmpty() && !items.contains(previous)) {
+        items.append(previous);
+    }
+
+    QStringList currentItems;
+    currentItems.reserve(m_semesterCombo->count());
+    for (int i = 0; i < m_semesterCombo->count(); ++i) {
+        currentItems.append(m_semesterCombo->itemText(i));
+    }
+    if (currentItems == items) {
+        return;
+    }
+
+    m_semesterCombo->blockSignals(true);
+    m_semesterCombo->clear();
+    m_semesterCombo->addItems(items);
+    const int previousIndex = m_semesterCombo->findText(previous);
+    m_semesterCombo->setCurrentIndex(previousIndex >= 0 ? previousIndex : 0);
+    m_semesterCombo->blockSignals(false);
+}
+
 void CourseDetailWidget::setCourse(const CourseUiState &course)
 {
     m_course = course;
@@ -164,7 +200,15 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
     m_titleLabel->setText(course.name.trimmed().isEmpty() ? QStringLiteral("Materia") : course.name.trimmed());
     m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed()));
     const QString targetSemester = course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed();
-    const int semesterIndex = m_semesterCombo->findText(targetSemester);
+    int semesterIndex = m_semesterCombo->findText(targetSemester);
+    if (semesterIndex < 0) {
+        // El semestre de la materia siempre debe ser visible; si no, el combo mostraria
+        // el de la materia anterior.
+        m_semesterCombo->blockSignals(true);
+        m_semesterCombo->addItem(targetSemester);
+        m_semesterCombo->blockSignals(false);
+        semesterIndex = m_semesterCombo->findText(targetSemester);
+    }
     if (semesterIndex >= 0 && m_semesterCombo->currentIndex() != semesterIndex) {
         m_semesterCombo->blockSignals(true);
         m_semesterCombo->setCurrentIndex(semesterIndex);
@@ -176,6 +220,26 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
 
     m_openFolderButton->setEnabled(!course.folderPath.trimmed().isEmpty());
     m_openClassroomButton->setEnabled(!course.classroomUrl.trimmed().isEmpty());
+
+    // Semestre archivado: solo lectura. Se deshabilita toda escritura o recarga
+    // manual (reasignar semestre, sincronizar materia) en ambas pestanas, pero la
+    // navegacion, la apertura de carpetas y los enlaces de Classroom siguen vivos.
+    const bool archived = course.archived;
+    const QString readOnlyTip = QStringLiteral("Semestre archivado: solo lectura");
+
+    m_archivedBadge->setVisible(archived);
+
+    m_semesterCombo->setEnabled(!archived);
+    m_semesterCombo->setToolTip(archived ? readOnlyTip : QStringLiteral("Semestre asignado a esta materia"));
+
+    m_syncButton->setEnabled(!archived);
+    m_syncButton->setToolTip(archived ? readOnlyTip : QStringLiteral("Sincronizar esta materia con Classroom"));
+
+    m_semesterLabel->setText(
+        archived
+            ? QStringLiteral("Semestre: %1 \u00b7 \U0001F512 Archivado (desconectado de Classroom)")
+                  .arg(course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed())
+            : m_semesterLabel->text());
 }
 
 void CourseDetailWidget::setAssignments(const QVector<AssignmentListItemData> &assignments)

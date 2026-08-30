@@ -162,6 +162,20 @@ QString SyncManager::semesterForCourse(const QString &courseId) const
 void SyncManager::setSemesterForCourse(const QString &courseId, const QString &semester)
 {
     const QString value = semester.trimmed();
+
+    // Un semestre archivado es solo lectura en ambas direcciones: no se le puede
+    // sacar una materia (la des-archivaria) ni meter una nueva.
+    if (isCourseArchived(courseId)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. Se rechaza cambiar de semestre la materia: %1")
+                    .arg(courseId));
+        return;
+    }
+    if (!value.isEmpty() && isSemesterArchived(value)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. Se rechaza asignarle la materia: %1")
+                    .arg(courseId));
+        return;
+    }
+
     if (value.isEmpty()) {
         m_semesterByCourse.remove(courseId);
         m_configManager.setSemesterForCourse(courseId, QString());
@@ -179,8 +193,29 @@ void SyncManager::setSemesterForCourse(const QString &courseId, const QString &s
 
 void SyncManager::setSemesterMapping(const QHash<QString, QString> &mapping)
 {
-    m_semesterByCourse = mapping;
-    m_configManager.setSemesterMapping(mapping);
+    // Se conserva el mapeo actual de toda materia archivada: un mapping entrante no
+    // puede des-archivarla ni arrastrar otra materia dentro de un semestre archivado.
+    QHash<QString, QString> safeMapping = mapping;
+    for (auto it = m_semesterByCourse.constBegin(); it != m_semesterByCourse.constEnd(); ++it) {
+        if (isSemesterArchived(it.value())) {
+            safeMapping.insert(it.key(), it.value());
+        }
+    }
+    for (auto it = mapping.constBegin(); it != mapping.constEnd(); ++it) {
+        if (isSemesterArchived(it.value()) && m_semesterByCourse.value(it.key()) != it.value()) {
+            const QString previousSemester = m_semesterByCourse.value(it.key()).trimmed();
+            if (previousSemester.isEmpty()) {
+                safeMapping.remove(it.key());
+            } else {
+                safeMapping.insert(it.key(), previousSemester);
+            }
+            logArch(QStringLiteral("Semestre archivado en solo lectura. Se ignora el mapeo entrante para la materia: %1")
+                        .arg(it.key()));
+        }
+    }
+
+    m_semesterByCourse = safeMapping;
+    m_configManager.setSemesterMapping(safeMapping);
     if (!m_configManager.save()) {
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar config.json"));
@@ -210,6 +245,14 @@ QString SyncManager::defaultSemester() const
 
 void SyncManager::setDefaultSemester(const QString &semester)
 {
+    // El fallback no puede apuntar a un semestre archivado: arrastraria dentro de el
+    // a toda materia sin mapeo explicito.
+    if (isSemesterArchived(semester)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. No se usa como semestre por defecto: %1")
+                    .arg(semester.trimmed()));
+        return;
+    }
+
     m_configManager.setDefaultSemester(semester);
     if (!m_configManager.save()) {
         ++m_errorCount;
@@ -218,10 +261,95 @@ void SyncManager::setDefaultSemester(const QString &semester)
     }
 }
 
+bool SyncManager::isSemesterArchived(const QString &semester) const
+{
+    return m_configManager.isSemesterArchived(semester);
+}
+
+bool SyncManager::isCourseArchived(const QString &courseId) const
+{
+    // Resolucion autoritativa: semesterForCourse() aplica el mapa en memoria y el
+    // fallback a defaultSemester, que es el semestre real con el que se arma la
+    // carpeta en disco. ConfigManager::isCourseArchived ignora ambos.
+    return isSemesterArchived(semesterForCourse(courseId));
+}
+
+QStringList SyncManager::archivedSemesters() const
+{
+    return m_configManager.archivedSemesters();
+}
+
+bool SyncManager::archiveSemester(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+
+    // Se fija el estado antes de archivar. Sin esto "archivado" seria un valor
+    // derivado: una materia que cae en este semestre solo por el fallback a
+    // defaultSemester se des-archivaria sola en cuanto ese fallback cambiara.
+    if (!m_configManager.archiveSemester(clean)) {
+        return false;
+    }
+
+    QStringList pinnedCourseIds;
+    QStringList candidateCourseIds;
+    for (const Course &course : m_courses) {
+        candidateCourseIds.append(course.id);
+    }
+    for (const QString &courseId : m_syncStateManager.courseIds()) {
+        if (!candidateCourseIds.contains(courseId)) {
+            candidateCourseIds.append(courseId);
+        }
+    }
+    for (const QString &courseId : candidateCourseIds) {
+        if (semesterForCourse(courseId) != clean) {
+            continue;
+        }
+        if (m_semesterByCourse.value(courseId).trimmed() == clean) {
+            continue;
+        }
+        m_semesterByCourse.insert(courseId, clean);
+        m_configManager.setSemesterForCourse(courseId, clean);
+        pinnedCourseIds.append(courseId);
+    }
+
+    // Si el semestre archivado era el valor por defecto, se limpia: si no, toda materia
+    // nueva sin mapeo explicito caeria dentro de un semestre archivado y naceria congelada.
+    if (m_configManager.defaultSemester().trimmed() == clean) {
+        m_configManager.setDefaultSemester(QString());
+        logArch(QStringLiteral("Se limpio el semestre por defecto porque quedo archivado: %1").arg(clean));
+    }
+
+    if (!m_configManager.save()) {
+        // Sin persistencia no hay archivado: al reiniciar el semestre volveria a
+        // estar expuesto a sincronizacion. Es un fallo, no una advertencia.
+        ++m_errorCount;
+        logErr(QStringLiteral("No se pudo guardar config.json. El semestre NO quedo archivado."));
+        emitCounters();
+        return false;
+    }
+
+    if (!pinnedCourseIds.isEmpty()) {
+        logArch(QStringLiteral("Semestre fijado en %1 materias para que el archivado no dependa del semestre por defecto.")
+                    .arg(pinnedCourseIds.size()));
+    }
+
+    logArch(QStringLiteral("Semestre archivado: %1. Queda en solo lectura y desconectado de Classroom.")
+                .arg(clean));
+    emit semesterArchivedChanged(clean);
+    emit syncStateChanged();
+    return true;
+}
+
 QString SyncManager::ensureSemesterFolderExists(const QString &semester)
 {
     const QString clean = semester.trimmed();
     if (clean.isEmpty() || clean == QStringLiteral("Todos los semestres")) {
+        return QString();
+    }
+
+    // Defensa en profundidad: la UI ya evita llamar aqui con un semestre archivado.
+    if (isSemesterArchived(clean)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. No se crea carpeta de semestre: %1").arg(clean));
         return QString();
     }
 
@@ -303,6 +431,145 @@ bool SyncManager::localPublicationFolderExists(const QString &courseId, const QS
     return m_syncStateManager.localPublicationFolderExists(courseId, publicationId);
 }
 
+bool SyncManager::buildCourseFromLocalState(const QString &courseId, Course *course) const
+{
+    if (!course) {
+        return false;
+    }
+
+    const QJsonObject courseState = m_syncStateManager.courseState(courseId);
+    if (courseState.isEmpty()) {
+        return false;
+    }
+
+    course->id = courseId;
+    course->name = courseState.value(QStringLiteral("name")).toString().trimmed();
+    if (course->name.isEmpty()) {
+        course->name = courseId;
+    }
+    course->section = courseState.value(QStringLiteral("section")).toString().trimmed();
+    course->descriptionHeading = courseState.value(QStringLiteral("descriptionHeading")).toString().trimmed();
+    course->alternateLink = courseState.value(QStringLiteral("alternateLink")).toString().trimmed();
+    return true;
+}
+
+QList<Assignment> SyncManager::loadLocalAssignmentsForCourse(const QString &courseId) const
+{
+    QList<Assignment> assignments;
+    const QStringList assignmentIds = m_syncStateManager.assignmentIds(courseId);
+    assignments.reserve(assignmentIds.size());
+
+    for (const QString &assignmentId : assignmentIds) {
+        const QJsonObject assignmentState = m_syncStateManager.assignmentState(courseId, assignmentId);
+        if (assignmentState.isEmpty()) {
+            continue;
+        }
+
+        // Las tareas archivadas/eliminadas no se cargan en memoria activa.
+        // Se mantienen en sync_state.json como evidencia historica pero no participan
+        // en sync, descarga de adjuntos ni generacion de UI activa.
+        if (m_syncStateManager.isAssignmentArchivedDeleted(courseId, assignmentId)) {
+            continue;
+        }
+
+        Assignment assignment;
+        assignment.id = assignmentId;
+        assignment.courseId = courseId;
+        assignment.title = assignmentState.value(QStringLiteral("title")).toString().trimmed();
+        if (assignment.title.isEmpty()) {
+            assignment.title = assignmentState.value(QStringLiteral("folderName")).toString().trimmed();
+        }
+
+        const QString metadataPath = m_syncStateManager.assignmentMetadataPath(courseId, assignmentId).trimmed();
+        QFile metadataFile(metadataPath);
+        if (metadataFile.exists() && metadataFile.open(QIODevice::ReadOnly)) {
+            const QJsonDocument metadataDoc = QJsonDocument::fromJson(metadataFile.readAll());
+            metadataFile.close();
+            if (metadataDoc.isObject()) {
+                const QJsonObject metadata = metadataDoc.object();
+                assignment.description = metadata.value(QStringLiteral("description")).toString();
+                assignment.workType = metadata.value(QStringLiteral("workType")).toString();
+                assignment.state = metadata.value(QStringLiteral("state")).toString();
+                assignment.alternateLink = metadata.value(QStringLiteral("alternateLink")).toString();
+                assignment.maxPoints = metadata.contains(QStringLiteral("maxPoints"))
+                    ? metadata.value(QStringLiteral("maxPoints")).toDouble()
+                    : -1.0;
+                const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
+                assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
+                assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+                assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+                assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
+                assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
+                assignment.submissionStateReliable =
+                    submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
+                assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
+                    ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
+                    : -1.0;
+                assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
+                    ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
+                    : -1.0;
+
+                const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
+                if (!dueDateObj.isEmpty()) {
+                    assignment.dueDate = QDate(
+                        dueDateObj.value(QStringLiteral("year")).toInt(),
+                        dueDateObj.value(QStringLiteral("month")).toInt(),
+                        dueDateObj.value(QStringLiteral("day")).toInt());
+                }
+
+                const QJsonObject dueTimeObj = metadata.value(QStringLiteral("dueTime")).toObject();
+                if (!dueTimeObj.isEmpty()) {
+                    assignment.dueTime = QTime(
+                        dueTimeObj.value(QStringLiteral("hours")).toInt(),
+                        dueTimeObj.value(QStringLiteral("minutes")).toInt(),
+                        dueTimeObj.value(QStringLiteral("seconds")).toInt());
+                }
+
+                const QJsonArray materialsArray = metadata.value(QStringLiteral("materials")).toArray();
+                assignment.materials.reserve(materialsArray.size());
+                for (const QJsonValue &materialValue : materialsArray) {
+                    if (!materialValue.isObject()) {
+                        continue;
+                    }
+
+                    const QJsonObject materialObj = materialValue.toObject();
+                    AssignmentMaterial material;
+                    material.type = materialObj.value(QStringLiteral("type")).toString();
+                    material.title = materialObj.value(QStringLiteral("title")).toString();
+                    material.alternateLink = materialObj.value(QStringLiteral("alternateLink")).toString();
+                    material.driveFileId = materialObj.value(QStringLiteral("driveFileId")).toString();
+                    material.url = materialObj.value(QStringLiteral("url")).toString();
+                    material.rawJson = materialObj;
+                    assignment.materials.append(material);
+                }
+
+                assignment.rawJson = metadata;
+            }
+        }
+
+        if (assignment.submissionState.trimmed().isEmpty()) {
+            const QJsonObject submissionObj = assignmentState.value(QStringLiteral("submission")).toObject();
+            assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
+            assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
+            assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
+            assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
+            assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
+            assignment.submissionStateReliable =
+                submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
+            assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
+                ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
+                : -1.0;
+            assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
+                ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
+                : -1.0;
+        }
+
+        assignments.append(assignment);
+    }
+
+    return assignments;
+}
+
 bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
 {
     if (!m_syncStateManager.load()) {
@@ -317,144 +584,85 @@ bool SyncManager::loadLocalStateIntoMemory(bool logOnFailure)
 
     const QStringList courseIds = m_syncStateManager.courseIds();
     for (const QString &courseId : courseIds) {
-        const QJsonObject courseState = m_syncStateManager.courseState(courseId);
-        if (courseState.isEmpty()) {
+        Course course;
+        if (!buildCourseFromLocalState(courseId, &course)) {
             continue;
         }
-
-        Course course;
-        course.id = courseId;
-        course.name = courseState.value(QStringLiteral("name")).toString().trimmed();
-        if (course.name.isEmpty()) {
-            course.name = courseId;
-        }
-        course.section = courseState.value(QStringLiteral("section")).toString().trimmed();
-        course.descriptionHeading = courseState.value(QStringLiteral("descriptionHeading")).toString().trimmed();
-        course.alternateLink = courseState.value(QStringLiteral("alternateLink")).toString().trimmed();
         localCourses.append(course);
 
         // El semestre manual por curso se mantiene en config.json.
         // No debemos "promover" el semestre guardado en sync_state a mapping manual,
         // porque eso impide que el selector global actue como default para materias sin asignacion manual.
 
-        QList<Assignment> assignments;
-        const QStringList assignmentIds = m_syncStateManager.assignmentIds(courseId);
-        assignments.reserve(assignmentIds.size());
-
-        for (const QString &assignmentId : assignmentIds) {
-            const QJsonObject assignmentState = m_syncStateManager.assignmentState(courseId, assignmentId);
-            if (assignmentState.isEmpty()) {
-                continue;
-            }
-
-            // Las tareas archivadas/eliminadas no se cargan en memoria activa.
-            // Se mantienen en sync_state.json como evidencia historica pero no participan
-            // en sync, descarga de adjuntos ni generacion de UI activa.
-            if (m_syncStateManager.isAssignmentArchivedDeleted(courseId, assignmentId)) {
-                continue;
-            }
-
-            Assignment assignment;
-            assignment.id = assignmentId;
-            assignment.courseId = courseId;
-            assignment.title = assignmentState.value(QStringLiteral("title")).toString().trimmed();
-            if (assignment.title.isEmpty()) {
-                assignment.title = assignmentState.value(QStringLiteral("folderName")).toString().trimmed();
-            }
-
-            const QString metadataPath = m_syncStateManager.assignmentMetadataPath(courseId, assignmentId).trimmed();
-            QFile metadataFile(metadataPath);
-            if (metadataFile.exists() && metadataFile.open(QIODevice::ReadOnly)) {
-                const QJsonDocument metadataDoc = QJsonDocument::fromJson(metadataFile.readAll());
-                metadataFile.close();
-                if (metadataDoc.isObject()) {
-                    const QJsonObject metadata = metadataDoc.object();
-                    assignment.description = metadata.value(QStringLiteral("description")).toString();
-                    assignment.workType = metadata.value(QStringLiteral("workType")).toString();
-                    assignment.state = metadata.value(QStringLiteral("state")).toString();
-                    assignment.alternateLink = metadata.value(QStringLiteral("alternateLink")).toString();
-                    assignment.maxPoints = metadata.contains(QStringLiteral("maxPoints"))
-                        ? metadata.value(QStringLiteral("maxPoints")).toDouble()
-                        : -1.0;
-                    const QJsonObject submissionObj = metadata.value(QStringLiteral("submission")).toObject();
-                    assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
-                    assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
-                    assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
-                    assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
-                    assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
-                    assignment.submissionStateReliable =
-                        submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
-                    assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
-                        ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
-                        : -1.0;
-                    assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
-                        ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
-                        : -1.0;
-
-                    const QJsonObject dueDateObj = metadata.value(QStringLiteral("dueDate")).toObject();
-                    if (!dueDateObj.isEmpty()) {
-                        assignment.dueDate = QDate(
-                            dueDateObj.value(QStringLiteral("year")).toInt(),
-                            dueDateObj.value(QStringLiteral("month")).toInt(),
-                            dueDateObj.value(QStringLiteral("day")).toInt());
-                    }
-
-                    const QJsonObject dueTimeObj = metadata.value(QStringLiteral("dueTime")).toObject();
-                    if (!dueTimeObj.isEmpty()) {
-                        assignment.dueTime = QTime(
-                            dueTimeObj.value(QStringLiteral("hours")).toInt(),
-                            dueTimeObj.value(QStringLiteral("minutes")).toInt(),
-                            dueTimeObj.value(QStringLiteral("seconds")).toInt());
-                    }
-
-                    const QJsonArray materialsArray = metadata.value(QStringLiteral("materials")).toArray();
-                    assignment.materials.reserve(materialsArray.size());
-                    for (const QJsonValue &materialValue : materialsArray) {
-                        if (!materialValue.isObject()) {
-                            continue;
-                        }
-
-                        const QJsonObject materialObj = materialValue.toObject();
-                        AssignmentMaterial material;
-                        material.type = materialObj.value(QStringLiteral("type")).toString();
-                        material.title = materialObj.value(QStringLiteral("title")).toString();
-                        material.alternateLink = materialObj.value(QStringLiteral("alternateLink")).toString();
-                        material.driveFileId = materialObj.value(QStringLiteral("driveFileId")).toString();
-                        material.url = materialObj.value(QStringLiteral("url")).toString();
-                        material.rawJson = materialObj;
-                        assignment.materials.append(material);
-                    }
-
-                    assignment.rawJson = metadata;
-                }
-            }
-
-            if (assignment.submissionState.trimmed().isEmpty()) {
-                const QJsonObject submissionObj = assignmentState.value(QStringLiteral("submission")).toObject();
-                assignment.submissionId = submissionObj.value(QStringLiteral("id")).toString().trimmed();
-                assignment.submissionState = submissionObj.value(QStringLiteral("state")).toString().trimmed();
-                assignment.submissionLate = submissionObj.value(QStringLiteral("late")).toBool(false);
-                assignment.submissionUpdateTime = submissionObj.value(QStringLiteral("updateTime")).toString().trimmed();
-                assignment.submissionAlternateLink = submissionObj.value(QStringLiteral("alternateLink")).toString().trimmed();
-                assignment.submissionStateReliable =
-                    submissionObj.value(QStringLiteral("reliable")).toBool(!assignment.submissionState.isEmpty());
-                assignment.submissionAssignedGrade = submissionObj.contains(QStringLiteral("assignedGrade"))
-                    ? submissionObj.value(QStringLiteral("assignedGrade")).toDouble()
-                    : -1.0;
-                assignment.submissionDraftGrade = submissionObj.contains(QStringLiteral("draftGrade"))
-                    ? submissionObj.value(QStringLiteral("draftGrade")).toDouble()
-                    : -1.0;
-            }
-
-            assignments.append(assignment);
-        }
-
-        localAssignmentsByCourse.insert(courseId, assignments);
+        localAssignmentsByCourse.insert(courseId, loadLocalAssignmentsForCourse(courseId));
     }
 
     m_courses = localCourses;
     m_assignmentsByCourse = localAssignmentsByCourse;
     return true;
+}
+
+QSet<QString> SyncManager::archivedCourseIds() const
+{
+    // Union de cursos conocidos: los que estan en memoria, los que tienen semestre
+    // manual asignado y los que solo viven ya en sync_state.json (respaldo local).
+    QSet<QString> candidates;
+    for (const Course &course : m_courses) {
+        candidates.insert(course.id);
+    }
+    for (auto it = m_semesterByCourse.constBegin(); it != m_semesterByCourse.constEnd(); ++it) {
+        candidates.insert(it.key());
+    }
+    const QStringList localCourseIds = m_syncStateManager.courseIds();
+    for (const QString &courseId : localCourseIds) {
+        candidates.insert(courseId);
+    }
+
+    QSet<QString> archived;
+    for (const QString &courseId : std::as_const(candidates)) {
+        if (isCourseArchived(courseId)) {
+            archived.insert(courseId);
+        }
+    }
+    return archived;
+}
+
+void SyncManager::mergeArchivedLocalCourses()
+{
+    // Un semestre archivado esta desconectado de Classroom: su respaldo local no puede
+    // evaporarse porque Google haya eliminado la clase remota. Tras aplicar la respuesta
+    // remota, se vuelven a agregar los cursos archivados que solo existen en local.
+    QSet<QString> remoteCourseIds;
+    for (const Course &course : m_courses) {
+        remoteCourseIds.insert(course.id);
+    }
+
+    if (!m_syncStateManager.load()) {
+        return;
+    }
+
+    const QStringList localCourseIds = m_syncStateManager.courseIds();
+    for (const QString &courseId : localCourseIds) {
+        if (remoteCourseIds.contains(courseId)) {
+            continue;
+        }
+        if (!isCourseArchived(courseId)) {
+            continue;
+        }
+
+        Course course;
+        if (!buildCourseFromLocalState(courseId, &course)) {
+            continue;
+        }
+
+        m_courses.append(course);
+        if (!m_assignmentsByCourse.contains(courseId) || m_assignmentsByCourse.value(courseId).isEmpty()) {
+            m_assignmentsByCourse.insert(courseId, loadLocalAssignmentsForCourse(courseId));
+        }
+
+        logArch(QStringLiteral("Materia de semestre archivado preservada desde estado local (no vino de Classroom): %1")
+                    .arg(course.name));
+    }
 }
 
 bool SyncManager::restoreLocalStateSnapshot()
@@ -479,6 +687,27 @@ bool SyncManager::rebuildLocalIndex()
     }
 
     const QString syncPath = m_configManager.syncStatePath();
+
+    // Los semestres archivados no se vuelven a consultar en Classroom, asi que la
+    // reconstruccion jamas podria regenerar su indice: se captura antes del wipe y
+    // se reinyecta tal cual, o el respaldo quedaria huerfano en disco para siempre.
+    QHash<QString, QJsonObject> archivedCourseStates;
+    if (m_syncStateManager.load()) {
+        const QStringList knownCourseIds = m_syncStateManager.courseIds();
+        for (const QString &courseId : knownCourseIds) {
+            // Tambien por ruta: una materia puede tener sus carpetas bajo el arbol archivado
+            // aunque ya no se resuelva como archivada. Perderla aqui seria irreversible.
+            if (!isCourseArchived(courseId)
+                && !pathIsUnderArchivedSemester(m_syncStateManager.courseFolderPath(courseId))) {
+                continue;
+            }
+            const QJsonObject courseState = m_syncStateManager.courseState(courseId);
+            if (!courseState.isEmpty()) {
+                archivedCourseStates.insert(courseId, courseState);
+            }
+        }
+    }
+
     const QFileInfo syncInfo(syncPath);
     if (syncInfo.exists()) {
         const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
@@ -507,6 +736,15 @@ bool SyncManager::rebuildLocalIndex()
         logErr(QStringLiteral("No se pudo inicializar estado limpio para reconstruccion."));
         return false;
     }
+
+    if (!archivedCourseStates.isEmpty()) {
+        for (auto it = archivedCourseStates.constBegin(); it != archivedCourseStates.constEnd(); ++it) {
+            m_syncStateManager.setCourseStateRaw(it.key(), it.value());
+        }
+        logArch(QStringLiteral("Materias de semestre archivado preservadas en la reconstruccion: %1")
+                    .arg(archivedCourseStates.size()));
+    }
+
     m_syncStateManager.save();
 
     m_rebuildAfterFetch = true;
@@ -595,6 +833,10 @@ void SyncManager::attemptAutoFetchFromClassroom()
 
 void SyncManager::verifyChecksumsInBackground()
 {
+    // El worker en segundo plano debe ignorar todo nodo hijo de un semestre archivado:
+    // no verifica ni regenera .checksum bajo un semestre en solo lectura.
+    m_attachmentChecksumManager.setArchivedCourseIds(archivedCourseIds());
+    m_attachmentChecksumManager.setArchivedPathRoots(archivedSemesterRoots());
     m_attachmentChecksumManager.verifyAllKnownAttachments();
 }
 
@@ -638,6 +880,15 @@ void SyncManager::syncCourse(const QString &courseId)
     const QString cleanCourseId = courseId.trimmed();
     if (cleanCourseId.isEmpty()) {
         logErr(QStringLiteral("No se recibio un courseId valido para sincronizar materia."));
+        return;
+    }
+
+    // Guard: un semestre archivado esta desconectado de Classroom. Alcance unico: se aborta
+    // sin tocar estado de ninguna materia y sin una sola peticion HTTP.
+    if (isCourseArchived(cleanCourseId)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite sincronizacion de la materia: %1")
+                    .arg(resolveCourseForSync(cleanCourseId).name));
+        emit syncFinished(0, 0, 0, 0);
         return;
     }
 
@@ -818,7 +1069,31 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         m_configManager.save();
     }
 
+    // Los semestres archivados no dependen de la respuesta remota: se reinyectan
+    // desde el estado local antes de publicar nada a la UI.
+    mergeArchivedLocalCourses();
+
     emit coursesChanged(m_courses);
+
+    // Guard central: los cursos de semestres archivados no entran al alcance de la
+    // operacion. Al quedar fuera del staging, el SyncDiffEngine jamas corre para ellos,
+    // por lo que no pueden generar deleted_archived ni reescritura de metadata.
+    QList<Course> activeCourses;
+    activeCourses.reserve(m_courses.size());
+    int archivedSkipped = 0;
+    for (const Course &course : m_courses) {
+        if (isCourseArchived(course.id)) {
+            ++archivedSkipped;
+            logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite de la sincronizacion: %1")
+                        .arg(course.name.trimmed().isEmpty() ? course.id : course.name));
+            continue;
+        }
+        activeCourses.append(course);
+    }
+
+    if (archivedSkipped > 0) {
+        logArch(QStringLiteral("Materias omitidas por semestre archivado: %1").arg(archivedSkipped));
+    }
 
     if (m_syncOperationMode == SyncOperationMode::SyncAll) {
         m_scopedCourseIds.clear();
@@ -827,7 +1102,7 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         m_stagedCourses.clear();
         m_stagedAssignmentsByCourse.clear();
 
-        for (const Course &course : m_courses) {
+        for (const Course &course : activeCourses) {
             m_scopedCourseIds.append(course.id);
             m_pendingCourseWorkCourses.insert(course.id);
             m_pendingPublicationCourses.insert(course.id);
@@ -835,14 +1110,16 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
             m_stagingManager.writeCourse(course, QJsonObject());
         }
 
-        emit logMessage(QStringLiteral("INFO  Cursos remotos cargados: %1").arg(m_courses.size()));
+        emit logMessage(QStringLiteral("INFO  Cursos remotos cargados: %1").arg(activeCourses.size()));
 
+        // Si todos los cursos quedaron archivados el alcance queda vacio: se cierra el
+        // sync aqui mismo para no dejarlo colgado esperando respuestas que nadie pidio.
         if (m_scopedCourseIds.isEmpty()) {
             maybeFinalizeStagedSync();
             return;
         }
 
-        for (const Course &course : m_courses) {
+        for (const Course &course : activeCourses) {
             emit logMessage(QStringLiteral("API   Cargando tareas de %1...").arg(course.name.trimmed().isEmpty() ? course.id : course.name));
             m_classroomClient.fetchCourseWork(course.id);
             m_classroomClient.fetchPublications(course.id);
@@ -850,12 +1127,12 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         return;
     }
 
-    m_pendingCourseWorkRequests = m_courses.size();
-    m_pendingPublicationFetchRequests = m_courses.size();
+    m_pendingCourseWorkRequests = activeCourses.size();
+    m_pendingPublicationFetchRequests = activeCourses.size();
 
-    if (m_courses.isEmpty()) {
-        logInfo(QStringLiteral("Cursos cargados: 0"));
-        emit assignmentsChanged({});
+    if (activeCourses.isEmpty()) {
+        logInfo(QStringLiteral("Cursos cargados: %1").arg(m_courses.size()));
+        emit assignmentsChanged(allAssignments());
         emitCounters();
         return;
     }
@@ -863,7 +1140,7 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
     logInfo(QStringLiteral("Cursos cargados: %1").arg(m_courses.size()));
     emitCounters();
 
-    for (const Course &course : m_courses) {
+    for (const Course &course : activeCourses) {
         m_classroomClient.fetchCourseWork(course.id);
         m_classroomClient.fetchPublications(course.id);
     }
@@ -1114,6 +1391,13 @@ void SyncManager::applyStagedDiffForScope()
                 continue;
             }
 
+            if (pathIsUnderArchivedSemester(m_syncStateManager.assignmentFolderPath(courseId, action.assignmentId))
+                || pathIsUnderArchivedSemester(m_syncStateManager.courseFolderPath(courseId))) {
+                logArch(QStringLiteral("Ruta dentro de un semestre archivado. Se omite escritura: %1 / %2")
+                            .arg(course.name, assignment.title));
+                continue;
+            }
+
             QString assignmentPath;
             if (!ensureCourseAndAssignmentPaths(course, assignment, &coursePath, &assignmentPath)) {
                 ++m_errorCount;
@@ -1213,6 +1497,12 @@ void SyncManager::applyStagedDiffForScope()
                 continue;
             }
 
+            if (pathIsUnderArchivedSemester(m_syncStateManager.publicationFolderPath(course.id, action.publicationId))) {
+                logArch(QStringLiteral("Publicacion dentro de un semestre archivado. Se omite: %1 / %2")
+                            .arg(course.name, pub->title));
+                continue;
+            }
+
             const QString pubFolder = m_folderOrganizer.createPublicationFolder(semester, course.name, *pub);
             if (pubFolder.isEmpty() || !QFileInfo::exists(pubFolder)) {
                 ++m_errorCount;
@@ -1249,8 +1539,23 @@ void SyncManager::applyStagedDiffForScope()
     }
 
     if (m_syncOperationMode == SyncOperationMode::SyncAll) {
-        m_assignmentsByCourse = m_stagedAssignmentsByCourse;
-        m_publicationsByCourse = m_stagedPublicationsByCourse;
+        // Los cursos archivados nunca entraron al staging: conservamos su estado local
+        // para que el respaldo en solo lectura siga siendo navegable en la UI.
+        QHash<QString, QList<Assignment>> mergedAssignments = m_stagedAssignmentsByCourse;
+        QHash<QString, QList<Publication>> mergedPublications = m_stagedPublicationsByCourse;
+        for (const Course &course : std::as_const(m_courses)) {
+            if (!isCourseArchived(course.id)) {
+                continue;
+            }
+            if (!mergedAssignments.contains(course.id) && m_assignmentsByCourse.contains(course.id)) {
+                mergedAssignments.insert(course.id, m_assignmentsByCourse.value(course.id));
+            }
+            if (!mergedPublications.contains(course.id) && m_publicationsByCourse.contains(course.id)) {
+                mergedPublications.insert(course.id, m_publicationsByCourse.value(course.id));
+            }
+        }
+        m_assignmentsByCourse = mergedAssignments;
+        m_publicationsByCourse = mergedPublications;
     } else if (m_syncOperationMode == SyncOperationMode::SyncCourse && !m_syncScopeCourseId.isEmpty()) {
         m_assignmentsByCourse.insert(m_syncScopeCourseId, m_stagedAssignmentsByCourse.value(m_syncScopeCourseId));
         m_publicationsByCourse.insert(m_syncScopeCourseId, m_stagedPublicationsByCourse.value(m_syncScopeCourseId));
@@ -1327,6 +1632,62 @@ Assignment SyncManager::findStagedAssignment(const QString &courseId, const QStr
     return Assignment();
 }
 
+QStringList SyncManager::archivedSemesterRoots() const
+{
+    QStringList roots;
+    const QString configuredBasePath = m_configManager.basePath().trimmed();
+    if (configuredBasePath.isEmpty()) {
+        return roots;
+    }
+
+    const QString tasksRoot = QDir::cleanPath(QDir(configuredBasePath).filePath(QStringLiteral("Tareas")));
+    const QStringList archived = m_configManager.archivedSemesters();
+    for (const QString &semester : archived) {
+        roots.append(QDir::cleanPath(QDir(tasksRoot).filePath(FolderOrganizer::sanitizeFileName(semester))));
+    }
+
+    // Las raices derivadas del basePath actual se ciegan si el usuario cambio la ruta base,
+    // porque sync_state.json conserva rutas absolutas de la anterior. Se anaden las carpetas
+    // realmente registradas para las materias cuyo semestre en estado esta archivado.
+    const QStringList knownCourseIds = m_syncStateManager.courseIds();
+    for (const QString &courseId : knownCourseIds) {
+        const QString stateSemester =
+            m_syncStateManager.courseState(courseId).value(QStringLiteral("semester")).toString().trimmed();
+        if (!m_configManager.isSemesterArchived(stateSemester)) {
+            continue;
+        }
+        const QString courseFolder = m_syncStateManager.courseFolderPath(courseId).trimmed();
+        if (!courseFolder.isEmpty()) {
+            const QString cleanCourseFolder = QDir::cleanPath(courseFolder);
+            if (!roots.contains(cleanCourseFolder)) {
+                roots.append(cleanCourseFolder);
+            }
+        }
+    }
+
+    return roots;
+}
+
+bool SyncManager::pathIsUnderArchivedSemester(const QString &path) const
+{
+    // Red de seguridad a nivel de ruta. Los demas guardias razonan por courseId; este
+    // atrapa el caso en que sync_state.json siga apuntando dentro del arbol de un
+    // semestre archivado aunque la materia ya no se resuelva como archivada.
+    const QString cleanPath = QDir::cleanPath(path.trimmed());
+    if (cleanPath.isEmpty()) {
+        return false;
+    }
+
+    const QStringList roots = archivedSemesterRoots();
+    for (const QString &semesterRoot : roots) {
+        if (cleanPath == semesterRoot || cleanPath.startsWith(semesterRoot + QLatin1Char('/'))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool SyncManager::ensureCourseAndAssignmentPaths(
     const Course &course,
     const Assignment &assignment,
@@ -1360,6 +1721,12 @@ bool SyncManager::ensureCourseAndAssignmentPaths(
     }
 
     if (localAssignmentPath.isEmpty() || !QFileInfo::exists(localAssignmentPath)) {
+        return false;
+    }
+
+    // Metodo const: no puede loguear. Es la red silenciosa de ultimo recurso; el
+    // llamador emite el [ARCH] correspondiente antes de llegar aqui.
+    if (pathIsUnderArchivedSemester(*coursePath) || pathIsUnderArchivedSemester(localAssignmentPath)) {
         return false;
     }
 
@@ -1470,6 +1837,14 @@ void SyncManager::onAuthSucceeded()
 
 void SyncManager::onChecksumFailed(const QString &courseId, const QString &assignmentId, const QStringList &attachmentKeys)
 {
+    // Proteccion de solo lectura: un checksum fallido en un semestre archivado se registra
+    // pero nunca dispara re-descarga (el semestre esta desconectado de Classroom/Drive).
+    if (isCourseArchived(courseId)) {
+        logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite re-descarga por checksum fallido: %1:%2")
+                    .arg(courseId, assignmentId));
+        return;
+    }
+
     // Proteccion de evidencia: las tareas archivadas/eliminadas no se re-descargan ni modifican.
     if (m_syncStateManager.isAssignmentArchivedDeleted(courseId, assignmentId)) {
         logArch(QStringLiteral("Tarea archivada protegida. Se omite re-descarga por checksum fallido: %1:%2")
@@ -1692,8 +2067,31 @@ void SyncManager::syncFolders()
 
     for (const Course &course : m_courses) {
         const QString semester = semesterForCourse(course.id);
-        const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
+
+        // Guard: un semestre archivado es solo lectura. Se sale antes de createCourseFolder
+        // y de cualquier escritura de metadata.json: ni un solo mtime cambia bajo el.
+        if (isSemesterArchived(semester)) {
+            current += m_assignmentsByCourse.value(course.id).size();
+            emit syncProgress(current, total);
+            logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite escritura de carpetas: %1")
+                        .arg(course.name));
+            continue;
+        }
+
         const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
+
+        // Red de seguridad a nivel de ruta. Una materia puede dejar de resolverse como
+        // archivada (p. ej. cambio el semestre por defecto o su mapeo) mientras su
+        // carpeta sigue dentro del arbol archivado. Se comprueba antes de crear nada.
+        if (pathIsUnderArchivedSemester(previousCoursePath)) {
+            current += m_assignmentsByCourse.value(course.id).size();
+            emit syncProgress(current, total);
+            logArch(QStringLiteral("Carpeta dentro de un semestre archivado. Se omite escritura de la materia: %1")
+                        .arg(course.name));
+            continue;
+        }
+
+        const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
 
         QString coursePath = suggestedCoursePath;
         if (!previousCoursePath.isEmpty()
@@ -1723,6 +2121,11 @@ void SyncManager::syncFolders()
 
             const bool knownAssignment = m_syncStateManager.hasAssignment(course.id, assignment.id);
             QString assignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id);
+            if (pathIsUnderArchivedSemester(assignmentPath)) {
+                logArch(QStringLiteral("Tarea dentro de un semestre archivado. Se omite escritura: %1 / %2")
+                            .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
+                continue;
+            }
             if (!assignmentPath.trimmed().isEmpty() && !pathIsInsideBase(assignmentPath, configuredBasePath)) {
                 assignmentPath.clear();
             }
@@ -1810,6 +2213,13 @@ void SyncManager::syncFolders()
         const QList<Publication> publications = m_publicationsByCourse.value(course.id);
         for (const Publication &publication : publications) {
             QString pubPath = m_syncStateManager.publicationFolderPath(course.id, publication.id).trimmed();
+            // La carpeta de una publicacion puede divergir de la de su materia (la materia
+            // se remapea de semestre y la publicacion se queda atras). Se comprueba aparte.
+            if (pathIsUnderArchivedSemester(pubPath)) {
+                logArch(QStringLiteral("Publicacion dentro de un semestre archivado. Se omite escritura: %1 / %2")
+                            .arg(course.name, publication.title));
+                continue;
+            }
             if (!pubPath.isEmpty() && !pathIsInsideBase(pubPath, configuredBasePath)) {
                 pubPath.clear();
             }
@@ -1904,6 +2314,18 @@ void SyncManager::downloadAttachments()
     const QList<Assignment> all = allAssignments();
     assignments.reserve(all.size());
     for (const Assignment &assignment : all) {
+        // Guard: un semestre archivado esta desconectado de Drive/Classroom.
+        if (pathIsUnderArchivedSemester(m_syncStateManager.assignmentFolderPath(assignment.courseId, assignment.id))) {
+            logArch(QStringLiteral("Tarea dentro de un semestre archivado. Se omite descarga de adjuntos: %1")
+                        .arg(Utils::effectiveAssignmentTitle(assignment)));
+            continue;
+        }
+        if (isCourseArchived(assignment.courseId)) {
+            logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite descarga de adjuntos: %1")
+                        .arg(Utils::effectiveAssignmentTitle(assignment)));
+            continue;
+        }
+
         // Guard: adjuntos de tareas archivadas no se (re)descargan automaticamente.
         if (m_syncStateManager.isAssignmentArchivedDeleted(assignment.courseId, assignment.id)) {
             logArch(QStringLiteral("Tarea archivada protegida. Se omite descarga de adjuntos: %1")

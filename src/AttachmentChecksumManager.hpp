@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QQueue>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -15,6 +16,13 @@ public:
     explicit AttachmentChecksumManager(QObject *parent = nullptr);
 
     void setSyncStateManager(SyncStateManager *syncStateManager);
+    // Cursos de semestres archivados: el worker de verificacion los ignora por completo
+    // (no lee, no verifica y no regenera .checksum bajo un semestre en solo lectura).
+    void setArchivedCourseIds(const QSet<QString> &archivedCourseIds);
+    // Raices de los semestres archivados. Complementa el filtro por courseId:
+    // atrapa carpetas que siguen dentro del arbol archivado aunque su materia
+    // ya no se resuelva como archivada.
+    void setArchivedPathRoots(const QStringList &archivedPathRoots);
 
     void verifyAllKnownAttachments();
     void verifyForAssignment(const QString &courseId, const QString &assignmentId);
@@ -51,6 +59,8 @@ private:
     void handleResult(const VerifyResult &result);
 
     SyncStateManager *m_syncStateManager = nullptr;
+    QSet<QString> m_archivedCourseIds;
+    QStringList m_archivedPathRoots;
     QQueue<VerifyTask> m_queue;
     bool m_running = false;
 };

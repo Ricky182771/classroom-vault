@@ -3,6 +3,7 @@
   "courseSemesters": {
     "1234567890": "Semestre 2"
   },
+  "archivedSemesters": [],
   "oauth": {
     "credentialsFile": "",
     "clientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",

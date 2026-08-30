@@ -4,6 +4,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QStringList>
 
 class QLabel;
 class QPushButton;
@@ -20,6 +21,7 @@ class CourseDetailWidget : public QWidget {
 public:
     explicit CourseDetailWidget(QWidget *parent = nullptr);
 
+    void setAvailableSemesters(const QStringList &semesters);
     void setCourse(const CourseUiState &course);
     void setAssignments(const QVector<AssignmentListItemData> &assignments);
     void setPublications(const QVector<PublicationListItemData> &publications);
@@ -54,6 +56,7 @@ private:
     QLabel *m_titleLabel = nullptr;
     QLabel *m_semesterLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QLabel *m_archivedBadge = nullptr;
     QLabel *m_summaryLabel = nullptr;
     QLabel *m_pathLabel = nullptr;
     QComboBox *m_semesterCombo = nullptr;

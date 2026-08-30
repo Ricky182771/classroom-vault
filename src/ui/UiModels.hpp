@@ -23,6 +23,10 @@ struct CourseUiState {
     QString folderPath;
     QString classroomUrl;
 
+    // true cuando el semestre del curso esta archivado: la materia sigue siendo
+    // navegable pero toda escritura / recarga manual queda deshabilitada.
+    bool archived = false;
+
     int totalTasks = 0;
     int backedUpTasks = 0;
     int attachments = 0;
@@ -129,6 +133,8 @@ struct AssignmentPreviewData {
     bool submissionStateReliable = false;
     bool submissionLate = false;
     bool archivedDeleted = false;
+    // Semestre de la materia archivado: solo lectura en el detalle de la tarea.
+    bool courseArchived = false;
     QVector<AttachmentUiState> attachments;
     QJsonObject rawJson;
 };

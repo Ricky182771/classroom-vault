@@ -30,6 +30,7 @@
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QStackedWidget>
 #include <QSet>
 #include <QTimer>
@@ -156,6 +157,7 @@ void MainWindow::connectSignals()
     connect(m_topBar, &TopBarWidget::searchTextChanged, this, &MainWindow::onTopBarSearchChanged);
     connect(m_topBar, &TopBarWidget::accountRequested, this, &MainWindow::onTopBarAccountRequested);
     connect(m_topBar, &TopBarWidget::globalSemesterFilterChanged, this, &MainWindow::onGlobalSemesterFilterChanged);
+    connect(m_topBar, &TopBarWidget::archiveSemesterRequested, this, &MainWindow::onArchiveSemesterRequested);
 
     connect(m_pathBar, &PathBarWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
     connect(m_pathBar, &PathBarWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
@@ -206,6 +208,7 @@ void MainWindow::connectSignals()
     connect(m_syncManager, &SyncManager::attachmentProgress, this, &MainWindow::onAttachmentProgress);
     connect(m_syncManager, &SyncManager::attachmentFinished, this, &MainWindow::onAttachmentFinished);
     connect(m_syncManager, &SyncManager::attachmentCountersChanged, this, &MainWindow::onAttachmentCountersChanged);
+    connect(m_syncManager, &SyncManager::semesterArchivedChanged, this, &MainWindow::onSemesterArchivedChanged);
     connect(m_syncManager, &SyncManager::logMessage, this, &MainWindow::appendLog);
     connect(m_syncManager, &SyncManager::errorOccurred, this, &MainWindow::appendError);
 
@@ -359,6 +362,71 @@ void MainWindow::showAssignmentDetail(const QString &courseId, const QString &as
     refreshAssignmentUi();
 }
 
+QStringList MainWindow::knownSemesters() const
+{
+    // Union de todo lo que existe de verdad. Los seis canonicos se mantienen como base
+    // para no cambiar la experiencia habitual, pero ya no son el limite: un semestre con
+    // nombre propio aparece y por tanto puede seleccionarse y archivarse.
+    QStringList semesters;
+    const auto addSemester = [&semesters](const QString &value) {
+        const QString clean = value.trimmed();
+        if (clean.isEmpty()
+            || clean == QStringLiteral("Sin semestre")
+            || clean == QStringLiteral("Todos los semestres")
+            || semesters.contains(clean)) {
+            return;
+        }
+        semesters.append(clean);
+    };
+
+    for (int i = 1; i <= 6; ++i) {
+        addSemester(QStringLiteral("Semestre %1").arg(i));
+    }
+
+    const QHash<QString, QString> mapping = m_syncManager->configManager().semesterMapping();
+    for (auto it = mapping.constBegin(); it != mapping.constEnd(); ++it) {
+        addSemester(it.value());
+    }
+
+    const QStringList archived = m_syncManager->archivedSemesters();
+    for (const QString &semester : archived) {
+        addSemester(semester);
+    }
+
+    addSemester(m_syncManager->defaultSemester());
+
+    for (const Course &course : m_currentCourses) {
+        addSemester(m_syncManager->semesterForCourse(course.id));
+    }
+
+    const auto semesterNumber = [](const QString &value) -> int {
+        static const QString prefix = QStringLiteral("Semestre ");
+        if (!value.startsWith(prefix)) {
+            return -1;
+        }
+        bool ok = false;
+        const int number = value.mid(prefix.size()).trimmed().toInt(&ok);
+        return ok ? number : -1;
+    };
+
+    std::sort(semesters.begin(), semesters.end(), [&semesterNumber](const QString &a, const QString &b) {
+        const int na = semesterNumber(a);
+        const int nb = semesterNumber(b);
+        if (na >= 0 && nb >= 0) {
+            return na < nb;
+        }
+        if (na >= 0) {
+            return true;
+        }
+        if (nb >= 0) {
+            return false;
+        }
+        return a.localeAwareCompare(b) < 0;
+    });
+
+    return semesters;
+}
+
 QVector<CourseUiState> MainWindow::buildCourseUiStates() const
 {
     QHash<QString, QList<Assignment>> assignmentsByCourse;
@@ -375,6 +443,7 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
         ui.name = course.name;
         ui.code = course.section;
         ui.semester = m_syncManager->semesterForCourse(course.id);
+        ui.archived = m_syncManager->isCourseArchived(course.id);
         ui.classroomUrl = course.alternateLink;
         ui.folderPath = m_syncManager->courseFolderPath(course.id);
         const bool courseFolderMissing =
@@ -733,6 +802,7 @@ AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId
         preview.metadataPath = metadataPath;
         preview.localFolderPath = m_syncManager->assignmentFolderPath(courseId, assignmentId);
         preview.archivedDeleted = m_syncManager->isAssignmentArchivedDeleted(courseId, assignmentId);
+        preview.courseArchived = m_syncManager->isCourseArchived(courseId);
 
         if (preview.courseName.trimmed().isEmpty() && course) {
             preview.courseName = course->name;
@@ -758,6 +828,7 @@ AssignmentPreviewData MainWindow::buildAssignmentPreview(const QString &courseId
 
     preview.courseId = courseId;
     preview.assignmentId = assignmentId;
+    preview.courseArchived = m_syncManager->isCourseArchived(courseId);
     preview.courseName = course ? course->name : courseId;
     preview.title = assignment ? Utils::effectiveAssignmentTitle(*assignment) : state.value(QStringLiteral("title")).toString();
     if (preview.title.trimmed().isEmpty()) {
@@ -909,11 +980,21 @@ CourseUiState MainWindow::courseUiById(const QString &courseId) const
         }
     }
 
+    // buildCourseUiStates() aplica el filtro global de semestre, asi que la materia
+    // mostrada puede no venir en la lista. El fallback debe conservar el estado real
+    // de archivado o la UI rehabilitaria los controles de una materia archivada.
     CourseUiState fallback;
     fallback.id = courseId;
     fallback.name = courseId;
-    fallback.semester = QStringLiteral("Sin semestre");
+    fallback.semester = m_syncManager->semesterForCourse(courseId);
     fallback.status = QStringLiteral("idle");
+    fallback.archived = m_syncManager->isCourseArchived(courseId);
+
+    const Course *course = findCourse(courseId);
+    if (course) {
+        fallback.name = course->name;
+    }
+
     return fallback;
 }
 
@@ -1209,6 +1290,13 @@ void MainWindow::onSyncCourseRequested(const QString &courseId)
         return;
     }
 
+    if (m_syncManager->isCourseArchived(clean)) {
+        appendLog(
+            QStringLiteral("[ARCH] Sincronizacion rechazada: la materia %1 pertenece al semestre archivado %2 (solo lectura).")
+                .arg(clean, m_syncManager->semesterForCourse(clean)));
+        return;
+    }
+
     m_runtimeStatus = QStringLiteral("Sincronizando materia");
     m_syncProgressCurrent = 0;
     m_syncProgressTotal = 1;
@@ -1220,6 +1308,26 @@ void MainWindow::onSyncCourseRequested(const QString &courseId)
 void MainWindow::onCourseSemesterChanged(const QString &courseId, const QString &semester)
 {
     const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : semester.trimmed();
+    const QString currentSemester = m_syncManager->semesterForCourse(courseId);
+
+    // Un semestre archivado esta en solo lectura: ni se puede sacar una materia de
+    // el ni se puede meter una materia nueva dentro. Se revierte el combo.
+    if (m_syncManager->isSemesterArchived(currentSemester)) {
+        appendLog(
+            QStringLiteral("[ARCH] Cambio de semestre rechazado: la materia %1 esta en el semestre archivado %2 (solo lectura).")
+                .arg(courseId, currentSemester));
+        refreshCourseUi();
+        return;
+    }
+
+    if (m_syncManager->isSemesterArchived(clean)) {
+        appendLog(
+            QStringLiteral("[ARCH] Cambio de semestre rechazado: %1 esta archivado y no admite materias nuevas.")
+                .arg(clean));
+        refreshCourseUi();
+        return;
+    }
+
     m_syncManager->setSemesterForCourse(courseId, clean);
     appendLog(QStringLiteral("INFO  Semestre actualizado para curso %1: %2").arg(courseId, clean));
     refreshAllViews();
@@ -1367,8 +1475,16 @@ void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
     m_globalSemesterFilter = clean;
     m_syncManager->setGlobalSemesterFilter(clean);
 
+    const bool archived = m_syncManager->isSemesterArchived(clean);
+
     if (clean == QStringLiteral("Todos los semestres")) {
         m_syncManager->setDefaultSemester(QString());
+    } else if (archived) {
+        // Semestre archivado: se puede seguir filtrando y navegando, pero la UI no
+        // debe provocar ninguna escritura (ni carpeta de semestre ni semestre por
+        // defecto), porque ensureSemesterFolderExists no comprueba el archivado.
+        appendLog(
+            QStringLiteral("[ARCH] Semestre %1 archivado: vista de solo lectura, no se crean carpetas.").arg(clean));
     } else {
         m_syncManager->setDefaultSemester(clean == QStringLiteral("Sin semestre") ? QStringLiteral("Sin semestre") : clean);
         const QString folder = m_syncManager->ensureSemesterFolderExists(clean);
@@ -1377,10 +1493,63 @@ void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
         }
     }
 
+    refreshArchiveUi();
     refreshHomeUi();
     if (m_currentPage == ViewPage::CourseDetail) {
         refreshCourseUi();
     }
+    if (m_currentPage == ViewPage::AssignmentDetail) {
+        refreshAssignmentUi();
+    }
+}
+
+void MainWindow::onArchiveSemesterRequested(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty()
+        || clean == QStringLiteral("Todos los semestres")
+        || clean == QStringLiteral("Sin semestre")) {
+        appendError(QStringLiteral("Selecciona un semestre concreto para archivarlo."));
+        return;
+    }
+
+    if (m_syncManager->isSemesterArchived(clean)) {
+        appendLog(QStringLiteral("[ARCH] El semestre %1 ya estaba archivado.").arg(clean));
+        refreshArchiveUi();
+        return;
+    }
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(QStringLiteral("Archivar semestre"));
+    box.setText(QStringLiteral("Archivar «%1»").arg(clean));
+    box.setInformativeText(
+        QStringLiteral("Esta acción desconectará el semestre de Classroom y lo hará de solo lectura permanentemente. ¿Continuar?"));
+
+    QPushButton *confirmButton = box.addButton(QStringLiteral("Sí, archivar"), QMessageBox::AcceptRole);
+    QPushButton *cancelButton = box.addButton(QStringLiteral("Cancelar"), QMessageBox::RejectRole);
+    // Irreversible: el foco inicial y la tecla Enter deben caer en Cancelar.
+    box.setDefaultButton(cancelButton);
+    box.setEscapeButton(cancelButton);
+    box.exec();
+
+    if (box.clickedButton() != confirmButton) {
+        appendLog(QStringLiteral("[ARCH] Archivado cancelado por el usuario para el semestre %1.").arg(clean));
+        return;
+    }
+
+    if (!m_syncManager->archiveSemester(clean)) {
+        appendError(QStringLiteral("No se pudo archivar el semestre %1.").arg(clean));
+        return;
+    }
+
+    refreshAllViews();
+}
+
+void MainWindow::onSemesterArchivedChanged(const QString &semester)
+{
+    Q_UNUSED(semester)
+    refreshAllViews();
 }
 
 void MainWindow::onTopBarAccountRequested()
@@ -1415,7 +1584,16 @@ void MainWindow::onTopBarAccountRequested()
                            "  • El directorio de cache: %1\n"
                            "  • El historial de actividad (activity.log)\n\n"
                            "Tus carpetas de tareas y adjuntos NO se modificaran.\n\n"
-                           "Esta accion es irreversible. ¿Continuar?").arg(cacheDir),
+                           "%2"
+                           "Esta accion es irreversible. ¿Continuar?")
+                .arg(cacheDir,
+                     m_syncManager->archivedSemesters().isEmpty()
+                         ? QString()
+                         : QStringLiteral("ATENCION: tienes semestres archivados (%1). Sus carpetas seguiran en disco,\n"
+                                          "pero se perdera su indice y dejaran de ser navegables desde la app.\n"
+                                          "No se pueden reconstruir, porque un semestre archivado ya no se consulta\n"
+                                          "en Classroom.\n\n")
+                               .arg(m_syncManager->archivedSemesters().join(QStringLiteral(", ")))),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
         if (confirm != QMessageBox::Yes) {
@@ -1613,6 +1791,7 @@ void MainWindow::refreshCourseUi()
         return;
     }
 
+    m_courseDetail->setAvailableSemesters(knownSemesters());
     m_courseDetail->setCourse(courseUiById(m_currentCourseId));
     m_courseDetail->setAssignments(buildCourseAssignments(m_currentCourseId));
     m_courseDetail->setPublications(buildCoursePublications(m_currentCourseId));
@@ -1628,9 +1807,22 @@ void MainWindow::refreshAssignmentUi()
     m_assignmentDetail->setPreviewData(buildAssignmentPreview(m_currentCourseId, m_currentAssignmentId));
 }
 
+void MainWindow::refreshArchiveUi()
+{
+    m_topBar->setAvailableSemesters(knownSemesters());
+
+    const QString semester = m_globalSemesterFilter.trimmed();
+    const bool archivable = !semester.isEmpty()
+        && semester != QStringLiteral("Todos los semestres")
+        && semester != QStringLiteral("Sin semestre");
+    m_topBar->setSemesterArchived(archivable && m_syncManager->isSemesterArchived(semester));
+}
+
 void MainWindow::refreshAllViews()
 {
+    m_topBar->setAvailableSemesters(knownSemesters());
     m_topBar->setGlobalSemesterFilter(m_globalSemesterFilter);
+    refreshArchiveUi();
     refreshAuthUi();
     refreshPathUi();
     refreshStatusUi();

@@ -57,6 +57,15 @@ AssignmentDetailWidget::AssignmentDetailWidget(QWidget *parent)
     m_backButton->setProperty("variant", QStringLiteral("ghost"));
     topRow->addWidget(m_backButton);
     topRow->addStretch(1);
+
+    m_archivedBadge = new QLabel(QStringLiteral("\U0001F512 Archivado \u00b7 solo lectura"), headerCard);
+    m_archivedBadge->setToolTip(QStringLiteral("Semestre archivado: solo lectura"));
+    m_archivedBadge->setStyleSheet(
+        QStringLiteral("padding:4px 9px;border-radius:9px;font-size:12px;color:#E6C26A;"
+                       "background:rgba(230,194,106,0.16);border:1px solid rgba(255,255,255,0.12);"));
+    m_archivedBadge->setVisible(false);
+    topRow->addWidget(m_archivedBadge);
+
     headerLayout->addLayout(topRow);
 
     auto *titleRow = new QHBoxLayout();
@@ -219,6 +228,15 @@ void AssignmentDetailWidget::setPreviewData(const AssignmentPreviewData &preview
 
     m_openClassroomButton->setEnabled(!preview.alternateLink.trimmed().isEmpty());
     m_openFolderButton->setEnabled(!preview.localFolderPath.trimmed().isEmpty());
+
+    // Semestre archivado: la tarea se sigue viendo completa (descripcion, evidencia,
+    // adjuntos, carpeta local, enlace de Classroom); solo se corta la recarga.
+    m_archivedBadge->setVisible(preview.courseArchived);
+    m_resyncButton->setEnabled(!preview.courseArchived);
+    m_resyncButton->setToolTip(preview.courseArchived
+        ? QStringLiteral("Semestre archivado: solo lectura")
+        : QStringLiteral("Volver a descargar la metadata de esta tarea"));
+
     m_userWorkPanel->setAssignmentFolderPath(preview.localFolderPath);
     m_userWorkPanel->refresh();
 

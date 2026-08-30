@@ -22,6 +22,9 @@ public:
     QStringList courseIds() const;
     QStringList assignmentIds(const QString &courseId) const;
     QJsonObject courseState(const QString &courseId) const;
+    // Reinyecta un curso completo tal cual. Solo para preservar semestres archivados
+    // durante una reconstruccion de indice: la API tipada recalcularia hashes y marcas.
+    void setCourseStateRaw(const QString &courseId, const QJsonObject &courseState);
 
     QString courseFolderPath(const QString &courseId) const;
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;

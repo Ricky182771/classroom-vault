@@ -87,6 +87,8 @@ private slots:
     void onTopBarSearchChanged(const QString &text);
     void onTopBarAccountRequested();
     void onGlobalSemesterFilterChanged(const QString &semester);
+    void onArchiveSemesterRequested(const QString &semester);
+    void onSemesterArchivedChanged(const QString &semester);
 
     void appendLog(const QString &message);
     void appendError(const QString &message);
@@ -104,6 +106,7 @@ private:
     void showCourseDetail(const QString &courseId);
     void showAssignmentDetail(const QString &courseId, const QString &assignmentId);
 
+    QStringList knownSemesters() const;
     QVector<CourseUiState> buildCourseUiStates() const;
     QVector<AssignmentListItemData> buildCourseAssignments(const QString &courseId) const;
     QVector<PublicationListItemData> buildCoursePublications(const QString &courseId) const;
@@ -124,6 +127,7 @@ private:
     void refreshCourseUi();
     void refreshAssignmentUi();
     void refreshAllViews();
+    void refreshArchiveUi();
 
     SyncManager *m_syncManager = nullptr;
 

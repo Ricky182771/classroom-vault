@@ -34,6 +34,7 @@ private:
     QPushButton *m_backButton = nullptr;
     QLabel *m_titleLabel = nullptr;
     QLabel *m_visualStatusBadge = nullptr;
+    QLabel *m_archivedBadge = nullptr;
     QLabel *m_courseLabel = nullptr;
     QLabel *m_dueLabel = nullptr;
     QLabel *m_stateLabel = nullptr;

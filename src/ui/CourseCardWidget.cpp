@@ -26,6 +26,15 @@ CourseCardWidget::CourseCardWidget(QWidget *parent)
     auto *bannerLayout = new QHBoxLayout(m_banner);
     bannerLayout->setContentsMargins(10, 8, 10, 8);
     bannerLayout->addStretch(1);
+
+    m_archivedBadge = new QLabel(QStringLiteral("\U0001F512 Archivado"), m_banner);
+    m_archivedBadge->setToolTip(QStringLiteral("Semestre archivado: solo lectura"));
+    m_archivedBadge->setStyleSheet(
+        QStringLiteral("padding:4px 8px;border-radius:8px;font-size:11px;color:#E6C26A;"
+                       "background:rgba(230,194,106,0.20);border:1px solid rgba(255,255,255,0.12);"));
+    m_archivedBadge->setVisible(false);
+    bannerLayout->addWidget(m_archivedBadge);
+
     m_statusBadge = new QLabel(QStringLiteral("Sin sync"), m_banner);
     m_statusBadge->setObjectName(QStringLiteral("Section"));
     m_statusBadge->setStyleSheet(
@@ -133,6 +142,19 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
 
     m_openFolderButton->setEnabled(!course.folderPath.trimmed().isEmpty());
     m_classroomButton->setEnabled(!course.classroomUrl.trimmed().isEmpty());
+
+    // Semestre archivado: la materia sigue siendo navegable (ver tareas, abrir
+    // carpeta, abrir Classroom) pero la recarga manual queda deshabilitada.
+    m_archivedBadge->setVisible(course.archived);
+    m_syncButton->setEnabled(!course.archived);
+    m_syncButton->setToolTip(course.archived
+        ? QStringLiteral("Semestre archivado: solo lectura")
+        : QStringLiteral("Sincronizar esta materia con Classroom"));
+    m_semesterLabel->setText(
+        course.archived
+            ? QStringLiteral("Semestre: %1 \u00b7 \U0001F512 Archivado (solo lectura)")
+                  .arg(course.semester.isEmpty() ? QStringLiteral("Sin semestre") : course.semester)
+            : m_semesterLabel->text());
 }
 
 CourseUiState CourseCardWidget::course() const
