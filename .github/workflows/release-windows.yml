@@ -1,0 +1,181 @@
+# .github/workflows/release-windows.yml
+#
+# Compila Classroom Vault en Windows (MSVC + Qt6 + Ninja), arma el instalador
+# con Inno Setup y lo adjunta al Release que dispare el workflow.
+#
+# Disparadores:
+#   - release: published  -> compila y sube los binarios al Release
+#   - workflow_dispatch   -> compila y deja los binarios como artifacts (para probar)
+
+name: Release Windows Installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  QT_VERSION: 6.8.1
+
+jobs:
+  windows-installer:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------
+      # Version: CMakeLists.txt es la fuente de verdad. Si esto es un release,
+      # el tag debe coincidir o el job falla antes de compilar nada.
+      # ---------------------------------------------------------------------
+      - name: Resolver y validar version
+        shell: pwsh
+        run: |
+          $cmake = Get-Content CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\(\s*ClassroomVault\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "No pude leer PROJECT_VERSION de CMakeLists.txt"
+          }
+          $projectVersion = $Matches[1]
+          Write-Host "PROJECT_VERSION = $projectVersion"
+
+          if ($env:GITHUB_EVENT_NAME -eq 'release') {
+            $tag = '${{ github.event.release.tag_name }}' -replace '^v', ''
+            Write-Host "Tag del release   = $tag"
+            if ($projectVersion -ne $tag) {
+              throw "Desajuste de version: CMakeLists.txt dice $projectVersion pero el tag es $tag. Actualiza project(ClassroomVault VERSION ...) y vuelve a taggear."
+            }
+          }
+
+          "APP_VERSION=$projectVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Instalar Qt ${{ env.QT_VERSION }}
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Configurar entorno MSVC (amd64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Asegurar Ninja
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            choco install ninja --no-progress -y
+          }
+          ninja --version
+
+      # ---------------------------------------------------------------------
+      # Las credenciales OAuth se inyectan desde secrets del repo. Si no estan
+      # definidas, CMake compila igual y la app cae a config.json del usuario.
+      # ---------------------------------------------------------------------
+      - name: Configurar CMake
+        shell: pwsh
+        env:
+          CV_OAUTH_CLIENT_ID: ${{ secrets.CV_OAUTH_CLIENT_ID }}
+          CV_OAUTH_CLIENT_SECRET: ${{ secrets.CV_OAUTH_CLIENT_SECRET }}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compilar
+        shell: pwsh
+        run: cmake --build build
+
+      # ---------------------------------------------------------------------
+      # El .iss espera su payload en dist/classroom-vault/. Se copia el exe a
+      # limpio y se le corre windeployqt encima, en vez de arrastrar la basura
+      # de CMake que vive en build/.
+      # ---------------------------------------------------------------------
+      - name: Preparar dist/classroom-vault
+        shell: pwsh
+        run: |
+          $stage = "dist/classroom-vault"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item build/classroom-vault.exe "$stage/" -Force
+
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" `
+              --release `
+              --no-translations `
+              --no-quick-import `
+              --no-system-d3d-compiler `
+              "$stage/classroom-vault.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt fallo con codigo $LASTEXITCODE" }
+
+          Write-Host "--- Contenido de $stage ---"
+          Get-ChildItem $stage -Recurse -File | Select-Object -ExpandProperty FullName
+
+      - name: Verificar que el exe arranca
+        shell: pwsh
+        run: |
+          # Prueba de humo: valida que las DLLs de Qt resolvieron bien.
+          # Si faltara alguna, el proceso muere antes de imprimir nada.
+          $p = Start-Process -FilePath "dist\classroom-vault\classroom-vault.exe" `
+                             -ArgumentList "--help" -PassThru -Wait -NoNewWindow
+          Write-Host "Codigo de salida: $($p.ExitCode)"
+
+      - name: Empaquetar ZIP portable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\classroom-vault\*" `
+                           -DestinationPath "dist\classroom-vault-$env:APP_VERSION-windows-x64.zip" `
+                           -Force
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compilar instalador
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "No se encontro ISCC.exe en $iscc" }
+          & $iscc "build\installer\classroom-vault.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC fallo con codigo $LASTEXITCODE" }
+
+          $setup = "dist\classroom-vault-$env:APP_VERSION-setup.exe"
+          if (-not (Test-Path $setup)) { throw "No se genero $setup" }
+          Write-Host "Instalador listo: $setup"
+
+      - name: Publicar checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Filter "classroom-vault-*" -File |
+            ForEach-Object {
+              $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$h  $($_.Name)"
+            } | Out-File "dist\SHA256SUMS.txt" -Encoding ascii
+          Get-Content "dist\SHA256SUMS.txt"
+
+      # ---------------------------------------------------------------------
+      # En workflow_dispatch quedan como artifacts. En un release, se adjuntan.
+      # ---------------------------------------------------------------------
+      - name: Subir artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: classroom-vault-${{ env.APP_VERSION }}-windows
+          path: |
+            dist/classroom-vault-*-setup.exe
+            dist/classroom-vault-*-windows-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Adjuntar al Release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" `
+            "dist\classroom-vault-$env:APP_VERSION-setup.exe" `
+            "dist\classroom-vault-$env:APP_VERSION-windows-x64.zip" `
+            "dist\SHA256SUMS.txt" `
+            --clobber
