@@ -40,6 +40,10 @@ public:
 
     bool load();
     bool save() const;
+    // Vacia el estado en memoria. load() sobre un fichero inexistente devuelve true
+    // conservando lo que hubiera cargado antes, asi que una reconstruccion que
+    // borra el fichero y recarga se quedaba con los restos del estado anterior.
+    void reset();
 
     bool hasCourse(const QString &courseId) const;
     bool hasAssignment(const QString &courseId, const QString &assignmentId) const;

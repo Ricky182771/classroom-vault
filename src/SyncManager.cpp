@@ -1,6 +1,8 @@
 #include "Semester.hpp"
 #include "SyncManager.hpp"
 
+#include "LocalIndexScanner.hpp"
+
 #include "Utils.hpp"
 
 #include <QDateTime>
@@ -770,95 +772,113 @@ bool SyncManager::rebuildLocalIndex()
 {
     refreshAuthConfig();
 
-    if (!m_googleAuth.hasUsableAccessToken() && m_googleAuth.refreshToken().trimmed().isEmpty()) {
-        logErr(QStringLiteral("No hay sesion valida para reconstruir indice local."));
-        return false;
-    }
-
-    // Se comprueba ANTES de vaciar nada. Un refresh token sin clientId/clientSecret
-    // pasaba el filtro de arriba y fallaba despues, con el indice ya vaciado.
-    if (!m_googleAuth.isConfigured()) {
-        logErr(QStringLiteral("OAuth no configurado: revisa clientId/clientSecret en config.json. "
-                              "No se reconstruye el indice para no vaciarlo sin poder repoblarlo."));
+    const QString basePath = m_configManager.basePath().trimmed();
+    if (basePath.isEmpty()) {
+        logSec(QStringLiteral("Ruta base vacia. No hay nada que escanear."));
         return false;
     }
 
     const QString syncPath = m_configManager.syncStatePath();
 
-    // Los semestres archivados no se vuelven a consultar en Classroom, asi que la
-    // reconstruccion jamas podria regenerar su indice: se captura antes del wipe y
-    // se reinyecta tal cual, o el respaldo quedaria huerfano en disco para siempre.
-    QHash<QString, QJsonObject> archivedCourseStates;
-    int knownCourseCount = 0;
-    if (m_syncStateManager.load()) {
-        const QStringList knownCourseIds = m_syncStateManager.courseIds();
-        knownCourseCount = static_cast<int>(knownCourseIds.size());
-        for (const QString &courseId : knownCourseIds) {
-            // Tambien por ruta: una materia puede tener sus carpetas bajo el arbol archivado
-            // aunque ya no se resuelva como archivada. Perderla aqui seria irreversible.
-            if (!isCourseArchived(courseId)
-                && !pathIsUnderArchivedSemester(m_syncStateManager.courseFolderPath(courseId))) {
-                continue;
-            }
-            const QJsonObject courseState = m_syncStateManager.courseState(courseId);
-            if (!courseState.isEmpty()) {
-                archivedCourseStates.insert(courseId, courseState);
-            }
-        }
+    // 1. Escaneo del disco. Es la fuente de verdad: cada tarea y cada publicacion
+    //    respaldada lleva su metadata.json al lado, asi que el arbol se puede
+    //    releer entero sin preguntarle nada a Classroom. Se hace ANTES de tocar el
+    //    indice: si el escaneo no encuentra nada, no se destruye lo que ya habia.
+    logInfo(QStringLiteral("Escaneando respaldos en disco: %1").arg(basePath));
+    const LocalScanResult scanned =
+        LocalIndexScanner::scan(basePath, m_configManager.archivedSemesters(), true);
+
+    for (const QString &warning : scanned.warnings) {
+        emit logMessage(QStringLiteral("WARN  %1").arg(warning));
     }
 
+    if (scanned.courses.isEmpty()) {
+        logErr(QStringLiteral("No se encontro ninguna materia en disco bajo %1/Tareas. "
+                              "No se reconstruye el indice para no vaciarlo.")
+                   .arg(basePath));
+        return false;
+    }
+
+    logInfo(QStringLiteral("Escaneo: %1 materias, %2 tareas, %3 publicaciones, %4 adjuntos en %5 semestres.")
+                .arg(scanned.courses.size())
+                .arg(scanned.assignments())
+                .arg(scanned.publications())
+                .arg(scanned.attachments())
+                .arg(scanned.semesterFolders));
+
+    int markersCreated = 0;
+    for (const ScannedCourse &course : scanned.courses) {
+        if (course.markerCreated) {
+            ++markersCreated;
+        }
+    }
+    if (markersCreated > 0) {
+        logInfo(QStringLiteral("Identidad local asignada a %1 carpetas que aun no la tenian.").arg(markersCreated));
+    }
+
+    // 2. Backup antes de sustituir nada.
     const QFileInfo syncInfo(syncPath);
     if (syncInfo.exists()) {
         const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-        const QString backupPath = syncPath + QStringLiteral(".bak.") + stamp;
-
-        if (!QFile::rename(syncPath, backupPath)) {
-            if (!QFile::copy(syncPath, backupPath)) {
-                logErr(QStringLiteral("No se pudo crear backup de sync_state.json"));
-                return false;
-            }
-            QFile::remove(syncPath);
+        QString backupPath = syncPath + QStringLiteral(".bak.") + stamp;
+        for (int suffix = 2; QFileInfo::exists(backupPath); ++suffix) {
+            backupPath = QStringLiteral("%1.bak.%2-%3").arg(syncPath, stamp).arg(suffix);
         }
 
-        logInfo(QStringLiteral("Backup creado: %1").arg(backupPath));
+        if (!QFile::copy(syncPath, backupPath)) {
+            logErr(QStringLiteral("No se pudo crear backup de sync_state.json. No se reconstruye."));
+            return false;
+        }
         m_rebuildBackupPath = backupPath;
+        logInfo(QStringLiteral("Backup creado: %1").arg(backupPath));
+
+        QFile::remove(syncPath);
     }
 
     m_courses.clear();
     m_assignmentsByCourse.clear();
-    emit coursesChanged(m_courses);
-    emit assignmentsChanged({});
-    emitCounters();
-    logInfo(QStringLiteral("Estado en memoria limpiado."));
-
     m_syncStateManager.setStatePath(syncPath);
+    // Sin esto, el estado anterior seguia en memoria y se colaba en el indice
+    // reconstruido: asi sobrevivian materias cuyas carpetas ya no existen.
+    m_syncStateManager.reset();
     if (!m_syncStateManager.load()) {
         logErr(QStringLiteral("No se pudo inicializar estado limpio para reconstruccion."));
+        abortRebuildAndRestore(QStringLiteral("no se pudo inicializar el estado"));
         return false;
     }
 
-    if (!archivedCourseStates.isEmpty()) {
-        for (auto it = archivedCourseStates.constBegin(); it != archivedCourseStates.constEnd(); ++it) {
-            m_syncStateManager.setCourseStateRaw(it.key(), it.value());
-        }
-        logArch(QStringLiteral("Materias de semestre archivado preservadas tal cual en la reconstruccion: %1")
-                    .arg(archivedCourseStates.size()));
-
-        // Si TODO lo que habia estaba archivado, la reconstruccion no puede cambiar
-        // nada y el usuario ve un indice identico sin explicacion. Se dice.
-        if (archivedCourseStates.size() == knownCourseCount) {
-            logArch(QStringLiteral("Las %1 materias del indice estan en semestres archivados: "
-                                   "la reconstruccion solo puede reinyectarlas tal cual y el indice "
-                                   "quedara igual. Si alguna sigue activa en Classroom, usa primero "
-                                   "\"Rescatar materias\".")
-                        .arg(knownCourseCount));
-        }
+    // 3. El indice pasa a ser exactamente lo que hay en disco.
+    for (const ScannedCourse &course : scanned.courses) {
+        m_syncStateManager.setCourseStateRaw(course.stateKey, course.state);
+    }
+    if (!m_syncStateManager.save()) {
+        logErr(QStringLiteral("No se pudo guardar el indice reconstruido."));
+        abortRebuildAndRestore(QStringLiteral("no se pudo guardar el indice"));
+        return false;
     }
 
-    m_syncStateManager.save();
+    loadLocalStateIntoMemory(false);
+    publishCurrentState();
+    logInfo(QStringLiteral("Indice reconstruido desde disco. Materias: %1.").arg(m_courses.size()));
+
+    // 4. Enriquecer con Classroom es opcional: el indice local ya es valido y esta
+    //    guardado. Sin sesion la reconstruccion sigue siendo un exito, solo que sin
+    //    lo que aun no se haya respaldado nunca.
+    m_rebuildBackupPath.clear();
+
+    if (!m_googleAuth.isConfigured()) {
+        logInfo(QStringLiteral("OAuth no configurado: se omite la puesta al dia con Classroom. "
+                               "El indice local quedo reconstruido igualmente."));
+        return true;
+    }
+    if (!m_googleAuth.hasUsableAccessToken() && m_googleAuth.refreshToken().trimmed().isEmpty()) {
+        logInfo(QStringLiteral("Sin sesion guardada: se omite la puesta al dia con Classroom. "
+                               "El indice local quedo reconstruido igualmente."));
+        return true;
+    }
 
     m_rebuildAfterFetch = true;
-    logInfo(QStringLiteral("Cargando Classroom desde cero para reconstruccion..."));
+    logInfo(QStringLiteral("Completando con Classroom lo que falte en los semestres activos..."));
     attemptAutoFetchFromClassroom();
     return true;
 }

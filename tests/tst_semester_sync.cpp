@@ -6,6 +6,8 @@
 // aqui mismo (12 materias, S2 archivado, S3 activo), que es el escenario del bug.
 
 #include "ConfigManager.hpp"
+#include "CourseFolderMarker.hpp"
+#include "LocalIndexScanner.hpp"
 #include "Semester.hpp"
 #include "SyncManager.hpp"
 #include "SyncStateManager.hpp"
@@ -114,7 +116,9 @@ private slots:
     void countersAlwaysComeFromTheFilteredSet();
     void emptyGridSaysWhyItIsEmpty();
     void renamedCoursesTrappedInArchivedSemesterCanBeRescued();
-    void rebuildRefusesToWipeTheIndexWhenItCannotRepopulateIt();
+    void rebuildWorksOfflineAndNeverLeavesTheIndexEmpty();
+    void rebuildScansTheDiskAndDropsPhantomCourses();
+    void folderUidSurvivesRenamesAndSeparatesReusedCourseIds();
     void rebasePathsIsIdempotentAndPreservesHistory();
 
 private:
@@ -453,10 +457,10 @@ void TestSemesterSync::renamedCoursesTrappedInArchivedSemesterCanBeRescued()
     QCOMPARE(m_sync->releaseCoursesFromArchivedSemester(QStringLiteral("Semestre 2")), 0);
 }
 
-// "Reconstruir indice local" vaciaba el indice y solo despues intentaba cargar
-// Classroom. Con un refresh token pero sin clientId/clientSecret la carga fallaba
-// y el indice se quedaba truncado, sin mas rastro que un ERR suelto.
-void TestSemesterSync::rebuildRefusesToWipeTheIndexWhenItCannotRepopulateIt()
+// La reconstruccion ya no depende de Classroom: el disco es la fuente de verdad,
+// asi que funciona sin sesion. Lo que sigue garantizado es que nunca deja el
+// indice vacio: si no hay nada que escanear, se niega y no toca lo que habia.
+void TestSemesterSync::rebuildWorksOfflineAndNeverLeavesTheIndexEmpty()
 {
     makeSyncManager();
     loadFixtureAndWait();
@@ -466,24 +470,119 @@ void TestSemesterSync::rebuildRefusesToWipeTheIndexWhenItCannotRepopulateIt()
     const QString statePath = m_sync->configManager().syncStatePath();
     QVERIFY(QFileInfo::exists(statePath));
 
+    // Sin OAuth configurado: reconstruye igual, leyendo el disco.
+    QVERIFY(m_sync->rebuildLocalIndex());
+
+    QFile rebuilt(statePath);
+    QVERIFY(rebuilt.open(QIODevice::ReadOnly));
+    const QJsonObject courses =
+        QJsonDocument::fromJson(rebuilt.readAll()).object().value(QStringLiteral("courses")).toObject();
+    rebuilt.close();
+    QCOMPARE(courses.size(), kCourseCount);
+
+    // Y con el arbol vaciado se niega, en vez de dejar el indice en blanco.
     QFile before(statePath);
     QVERIFY(before.open(QIODevice::ReadOnly));
     const QByteArray contentBefore = before.readAll();
     before.close();
-    QVERIFY(!contentBefore.isEmpty());
 
-    // Sin OAuth configurado no puede repoblar: debe negarse, no vaciar.
+    QVERIFY(QDir(QDir(m_basePath).filePath(QStringLiteral("Tareas"))).removeRecursively());
     QVERIFY(!m_sync->rebuildLocalIndex());
 
     QFile after(statePath);
     QVERIFY(after.open(QIODevice::ReadOnly));
     QCOMPARE(after.readAll(), contentBefore);
     after.close();
+}
 
-    // Y no puede haber dejado backups sueltos de un vaciado que no ocurrio.
-    const QStringList backups =
-        QDir(QFileInfo(statePath).absolutePath()).entryList({QStringLiteral("sync_state.json.bak.*")}, QDir::Files);
-    QCOMPARE(backups.size(), 0);
+// "Reconstruir indice local" nunca miraba el disco: se repoblaba pidiendole todo a
+// Classroom, asi que una carpeta que Classroom ya no devuelve era invisible, y una
+// entrada del indice sin carpeta sobrevivia para siempre.
+void TestSemesterSync::rebuildScansTheDiskAndDropsPhantomCourses()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    m_sync->syncFolders();
+
+    // Una materia fantasma: esta en el indice pero su carpeta no existe.
+    const QString statePath = m_sync->configManager().syncStatePath();
+    {
+        QFile file(statePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+
+        QJsonObject courses = root.value(QStringLiteral("courses")).toObject();
+        QJsonObject phantom;
+        phantom.insert(QStringLiteral("name"), QStringLiteral("Materia fantasma"));
+        phantom.insert(QStringLiteral("semester"), QStringLiteral("Semestre 3"));
+        phantom.insert(QStringLiteral("folderPath"), QStringLiteral("/tmp/no-existe/Tareas/Semestre 3/Fantasma"));
+        courses.insert(QStringLiteral("fantasma-1"), phantom);
+        root.insert(QStringLiteral("courses"), courses);
+
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(root).toJson());
+        file.close();
+    }
+
+    QVERIFY(m_sync->rebuildLocalIndex());
+
+    QFile rebuilt(statePath);
+    QVERIFY(rebuilt.open(QIODevice::ReadOnly));
+    const QJsonObject courses =
+        QJsonDocument::fromJson(rebuilt.readAll()).object().value(QStringLiteral("courses")).toObject();
+    rebuilt.close();
+
+    QVERIFY2(!courses.contains(QStringLiteral("fantasma-1")),
+             "una materia sin carpeta en disco no puede sobrevivir a la reconstruccion");
+    QCOMPARE(courses.size(), kCourseCount);
+
+    // Y cada carpeta quedo con identidad local propia.
+    for (const QString &key : courses.keys()) {
+        const QString folder = courses.value(key).toObject().value(QStringLiteral("folderPath")).toString();
+        QVERIFY(!CourseFolderMarker::uid(folder).isEmpty());
+    }
+}
+
+// El UID hace que la identidad del respaldo deje de depender de que Classroom no
+// renombre ni reutilice el curso: el mismo courseId puede tener respaldo en dos
+// semestres a la vez, uno congelado y otro activo.
+void TestSemesterSync::folderUidSurvivesRenamesAndSeparatesReusedCourseIds()
+{
+    const QString semesterRoot = QDir(m_basePath).filePath(QStringLiteral("Tareas"));
+    const QString frozen = QDir(semesterRoot).filePath(QStringLiteral("Semestre 2/Materia ciclo viejo"));
+    const QString active = QDir(semesterRoot).filePath(QStringLiteral("Semestre 3/Materia ciclo nuevo"));
+    QVERIFY(QDir().mkpath(frozen));
+    QVERIFY(QDir().mkpath(active));
+
+    // Misma materia de Classroom, dos respaldos distintos.
+    const QString frozenUid = CourseFolderMarker::ensure(frozen, QStringLiteral("curso-compartido"),
+                                                         QStringLiteral("Materia ciclo viejo"), QStringLiteral("Semestre 2"));
+    const QString activeUid = CourseFolderMarker::ensure(active, QStringLiteral("curso-compartido"),
+                                                         QStringLiteral("Materia ciclo nuevo"), QStringLiteral("Semestre 3"));
+    QVERIFY(!frozenUid.isEmpty());
+    QVERIFY(!activeUid.isEmpty());
+    QVERIFY2(frozenUid != activeUid, "dos carpetas distintas no pueden compartir identidad");
+
+    // Reescribir el marcador con otro nombre no cambia la identidad.
+    QCOMPARE(CourseFolderMarker::ensure(frozen, QStringLiteral("curso-compartido"),
+                                        QStringLiteral("Nombre renombrado por la escuela"), QStringLiteral("Semestre 2")),
+             frozenUid);
+    QCOMPARE(CourseFolderMarker::courseName(frozen), QStringLiteral("Nombre renombrado por la escuela"));
+
+    // El escaneo le da al semestre activo la clave limpia y al congelado la suya.
+    const LocalScanResult scanned =
+        LocalIndexScanner::scan(m_basePath, {QStringLiteral("Semestre 2")}, false);
+    QCOMPARE(scanned.courses.size(), 2);
+
+    QString frozenKey;
+    QString activeKey;
+    for (const ScannedCourse &course : scanned.courses) {
+        (course.semester == QStringLiteral("Semestre 2") ? frozenKey : activeKey) = course.stateKey;
+    }
+    QCOMPARE(activeKey, QStringLiteral("curso-compartido"));
+    QCOMPARE(frozenKey, QStringLiteral("local:%1").arg(frozenUid));
 }
 
 // Fase 2: la migracion de rutas es idempotente y no pierde historial.

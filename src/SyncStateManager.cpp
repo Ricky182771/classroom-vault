@@ -115,6 +115,12 @@ bool SyncStateManager::load()
     return true;
 }
 
+void SyncStateManager::reset()
+{
+    m_root = QJsonObject();
+    ensureDefaultState();
+}
+
 bool SyncStateManager::save() const
 {
     if (m_statePath.trimmed().isEmpty()) {

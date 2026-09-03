@@ -33,6 +33,10 @@ qt_add_library(classroom-vault-core STATIC
     src/FolderOrganizer.cpp
     src/ConfigManager.hpp
     src/ConfigManager.cpp
+    src/CourseFolderMarker.hpp
+    src/CourseFolderMarker.cpp
+    src/LocalIndexScanner.hpp
+    src/LocalIndexScanner.cpp
     src/SyncManager.hpp
     src/SyncManager.cpp
     src/SyncStateManager.hpp

@@ -1,6 +1,7 @@
 #include "ConfigManager.hpp"
 #include "Models.hpp"
 #include "SyncManager.hpp"
+#include "LocalIndexScanner.hpp"
 #include "SyncStateManager.hpp"
 #include "ui/MainWindow.hpp"
 #include "ui/StyleManager.hpp"
@@ -108,6 +109,57 @@ void reconcileSplitCourses(SyncStateManager &state, const QString &newBase, bool
             }
         }
     }
+}
+
+int runIndexRebuild(bool apply)
+{
+    QTextStream out(stdout);
+    QTextStream err(stderr);
+
+    ConfigManager config;
+    config.load();
+
+    const QString basePath = config.basePath().trimmed();
+    if (basePath.isEmpty()) {
+        err << "Error: no hay ruta base configurada.\n";
+        return 1;
+    }
+
+    if (!apply) {
+        // Previsualizacion: no escribe marcadores ni toca el indice.
+        const LocalScanResult scanned = LocalIndexScanner::scan(basePath, config.archivedSemesters(), false);
+        out << "Escaneo de " << basePath << "/Tareas (simulacion, no se escribe nada)\n\n";
+        for (const ScannedCourse &course : scanned.courses) {
+            out << "  [" << course.semester << "] " << course.name << "\n"
+                << "      clave: " << course.stateKey
+                << " | uid: " << (course.uid.isEmpty() ? QStringLiteral("(sin asignar)") : course.uid) << "\n"
+                << "      tareas: " << course.assignments
+                << " · publicaciones: " << course.publications
+                << " · adjuntos: " << course.attachments << "\n";
+        }
+        for (const QString &warning : scanned.warnings) {
+            out << "  AVISO " << warning << "\n";
+        }
+        out << "\nTotal: " << scanned.courses.size() << " materias, "
+            << scanned.assignments() << " tareas, "
+            << scanned.publications() << " publicaciones, "
+            << scanned.attachments() << " adjuntos.\n"
+            << "\nSimulacion: repite con --apply para reconstruir el indice.\n";
+        return scanned.courses.isEmpty() ? 1 : 0;
+    }
+
+    SyncManager syncManager;
+    QObject::connect(&syncManager, &SyncManager::logMessage, [&out](const QString &message) {
+        out << message << "\n";
+        out.flush();
+    });
+    QObject::connect(&syncManager, &SyncManager::errorOccurred, [&err](const QString &message) {
+        err << message << "\n";
+        err.flush();
+    });
+
+    const bool ok = syncManager.rebuildLocalIndex();
+    return ok ? 0 : 1;
 }
 
 int runPathMigration(const QString &oldBaseArg, const QString &newBaseArg, bool apply)
@@ -224,7 +276,8 @@ int main(int argc, char *argv[])
     const bool hasCliSync = [&]() {
         for (int i = 1; i < argc; ++i) {
             if (QLatin1String(argv[i]) == QLatin1String("--cli-sync")
-                || QLatin1String(argv[i]) == QLatin1String("--migrate-paths")) {
+                || QLatin1String(argv[i]) == QLatin1String("--migrate-paths")
+                || QLatin1String(argv[i]) == QLatin1String("--rebuild-index")) {
                 return true;
             }
         }
@@ -270,6 +323,10 @@ int main(int argc, char *argv[])
         QStringList{QStringLiteral("sample")},
         QStringLiteral("Ruta a sample_classroom_data.json (opcional)."),
         QStringLiteral("path"));
+    QCommandLineOption rebuildIndexOption(
+        QStringList{QStringLiteral("rebuild-index")},
+        QStringLiteral("Reconstruye sync_state.json escaneando los respaldos en disco. "
+                       "Sin --apply solo muestra lo que encontraria."));
     QCommandLineOption migratePathsOption(
         QStringList{QStringLiteral("migrate-paths")},
         QStringLiteral("Reescribe en sync_state.json las rutas absolutas de una ruta base anterior. "
@@ -293,11 +350,16 @@ int main(int argc, char *argv[])
     parser.addOption(basePathOption);
     parser.addOption(samplePathOption);
     parser.addOption(cliDownloadAttachmentsOption);
+    parser.addOption(rebuildIndexOption);
     parser.addOption(migratePathsOption);
     parser.addOption(migrateApplyOption);
     parser.addOption(oldBaseOption);
     parser.addOption(newBaseOption);
     parser.process(app);
+
+    if (parser.isSet(rebuildIndexOption)) {
+        return runIndexRebuild(parser.isSet(migrateApplyOption));
+    }
 
     if (parser.isSet(migratePathsOption)) {
         return runPathMigration(
