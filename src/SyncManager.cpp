@@ -2145,6 +2145,9 @@ void SyncManager::syncFolders()
     int current = 0;
     const int total = all.size();
     int processedCourses = 0;
+    // Se acumulan las omisiones y se reportan en una linea por semestre: logear por
+    // materia inundaba el registro con una veintena de lineas en el mismo segundo.
+    QMap<QString, QStringList> skippedBySemester;
 
     for (const Course &course : m_courses) {
         const QString semester = semesterForCourse(course.id);
@@ -2154,8 +2157,7 @@ void SyncManager::syncFolders()
         if (isSemesterArchived(semester)) {
             current += m_assignmentsByCourse.value(course.id).size();
             emit syncProgress(current, total);
-            logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite escritura de carpetas: %1")
-                        .arg(course.name));
+            skippedBySemester[semester].append(course.name);
             continue;
         }
 
@@ -2167,8 +2169,7 @@ void SyncManager::syncFolders()
         if (pathIsUnderArchivedSemester(previousCoursePath)) {
             current += m_assignmentsByCourse.value(course.id).size();
             emit syncProgress(current, total);
-            logArch(QStringLiteral("Carpeta dentro de un semestre archivado. Se omite escritura de la materia: %1")
-                        .arg(course.name));
+            skippedBySemester[QStringLiteral("%1 (por ruta)").arg(semester)].append(course.name);
             continue;
         }
 
@@ -2335,6 +2336,13 @@ void SyncManager::syncFolders()
 
             m_syncStateManager.updatePublication(course.id, publication, pubPath, pubMetadataPath, metadataNst);
         }
+    }
+
+    for (auto it = skippedBySemester.constBegin(); it != skippedBySemester.constEnd(); ++it) {
+        logArch(QStringLiteral("Semestre archivado (solo lectura): %1. Materias omitidas de la escritura (%2): %3")
+                    .arg(it.key())
+                    .arg(it.value().size())
+                    .arg(it.value().join(QStringLiteral(", "))));
     }
 
     if (processedCourses > 0) {
