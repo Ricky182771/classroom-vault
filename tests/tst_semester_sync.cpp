@@ -114,6 +114,7 @@ private slots:
     void countersAlwaysComeFromTheFilteredSet();
     void emptyGridSaysWhyItIsEmpty();
     void renamedCoursesTrappedInArchivedSemesterCanBeRescued();
+    void rebuildRefusesToWipeTheIndexWhenItCannotRepopulateIt();
     void rebasePathsIsIdempotentAndPreservesHistory();
 
 private:
@@ -450,6 +451,39 @@ void TestSemesterSync::renamedCoursesTrappedInArchivedSemesterCanBeRescued()
 
     // Un destino archivado nunca es valido como rescate.
     QCOMPARE(m_sync->releaseCoursesFromArchivedSemester(QStringLiteral("Semestre 2")), 0);
+}
+
+// "Reconstruir indice local" vaciaba el indice y solo despues intentaba cargar
+// Classroom. Con un refresh token pero sin clientId/clientSecret la carga fallaba
+// y el indice se quedaba truncado, sin mas rastro que un ERR suelto.
+void TestSemesterSync::rebuildRefusesToWipeTheIndexWhenItCannotRepopulateIt()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    m_sync->syncFolders();
+
+    const QString statePath = m_sync->configManager().syncStatePath();
+    QVERIFY(QFileInfo::exists(statePath));
+
+    QFile before(statePath);
+    QVERIFY(before.open(QIODevice::ReadOnly));
+    const QByteArray contentBefore = before.readAll();
+    before.close();
+    QVERIFY(!contentBefore.isEmpty());
+
+    // Sin OAuth configurado no puede repoblar: debe negarse, no vaciar.
+    QVERIFY(!m_sync->rebuildLocalIndex());
+
+    QFile after(statePath);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    QCOMPARE(after.readAll(), contentBefore);
+    after.close();
+
+    // Y no puede haber dejado backups sueltos de un vaciado que no ocurrio.
+    const QStringList backups =
+        QDir(QFileInfo(statePath).absolutePath()).entryList({QStringLiteral("sync_state.json.bak.*")}, QDir::Files);
+    QCOMPARE(backups.size(), 0);
 }
 
 // Fase 2: la migracion de rutas es idempotente y no pierde historial.

@@ -79,8 +79,11 @@ SyncManager::SyncManager(QObject *parent)
         logErr(message);
         emitCounters();
     });
-    connect(&m_googleAuth, &GoogleAuth::authFailed, this, [this](const QString &) {
+    connect(&m_googleAuth, &GoogleAuth::authFailed, this, [this](const QString &message) {
         m_waitingForTokenRefresh = false;
+        // Una reconstruccion en curso ya vacio el indice: si la sesion falla ahora,
+        // hay que devolverlo a como estaba en vez de dejarlo truncado.
+        abortRebuildAndRestore(message.trimmed().isEmpty() ? QStringLiteral("fallo de sesion") : message);
     });
 
     emitCounters();
@@ -772,14 +775,24 @@ bool SyncManager::rebuildLocalIndex()
         return false;
     }
 
+    // Se comprueba ANTES de vaciar nada. Un refresh token sin clientId/clientSecret
+    // pasaba el filtro de arriba y fallaba despues, con el indice ya vaciado.
+    if (!m_googleAuth.isConfigured()) {
+        logErr(QStringLiteral("OAuth no configurado: revisa clientId/clientSecret en config.json. "
+                              "No se reconstruye el indice para no vaciarlo sin poder repoblarlo."));
+        return false;
+    }
+
     const QString syncPath = m_configManager.syncStatePath();
 
     // Los semestres archivados no se vuelven a consultar en Classroom, asi que la
     // reconstruccion jamas podria regenerar su indice: se captura antes del wipe y
     // se reinyecta tal cual, o el respaldo quedaria huerfano en disco para siempre.
     QHash<QString, QJsonObject> archivedCourseStates;
+    int knownCourseCount = 0;
     if (m_syncStateManager.load()) {
         const QStringList knownCourseIds = m_syncStateManager.courseIds();
+        knownCourseCount = static_cast<int>(knownCourseIds.size());
         for (const QString &courseId : knownCourseIds) {
             // Tambien por ruta: una materia puede tener sus carpetas bajo el arbol archivado
             // aunque ya no se resuelva como archivada. Perderla aqui seria irreversible.
@@ -808,6 +821,7 @@ bool SyncManager::rebuildLocalIndex()
         }
 
         logInfo(QStringLiteral("Backup creado: %1").arg(backupPath));
+        m_rebuildBackupPath = backupPath;
     }
 
     m_courses.clear();
@@ -827,8 +841,18 @@ bool SyncManager::rebuildLocalIndex()
         for (auto it = archivedCourseStates.constBegin(); it != archivedCourseStates.constEnd(); ++it) {
             m_syncStateManager.setCourseStateRaw(it.key(), it.value());
         }
-        logArch(QStringLiteral("Materias de semestre archivado preservadas en la reconstruccion: %1")
+        logArch(QStringLiteral("Materias de semestre archivado preservadas tal cual en la reconstruccion: %1")
                     .arg(archivedCourseStates.size()));
+
+        // Si TODO lo que habia estaba archivado, la reconstruccion no puede cambiar
+        // nada y el usuario ve un indice identico sin explicacion. Se dice.
+        if (archivedCourseStates.size() == knownCourseCount) {
+            logArch(QStringLiteral("Las %1 materias del indice estan en semestres archivados: "
+                                   "la reconstruccion solo puede reinyectarlas tal cual y el indice "
+                                   "quedara igual. Si alguna sigue activa en Classroom, usa primero "
+                                   "\"Rescatar materias\".")
+                        .arg(knownCourseCount));
+        }
     }
 
     m_syncStateManager.save();
@@ -837,6 +861,34 @@ bool SyncManager::rebuildLocalIndex()
     logInfo(QStringLiteral("Cargando Classroom desde cero para reconstruccion..."));
     attemptAutoFetchFromClassroom();
     return true;
+}
+
+void SyncManager::abortRebuildAndRestore(const QString &reason)
+{
+    if (!m_rebuildAfterFetch) {
+        return;
+    }
+
+    m_rebuildAfterFetch = false;
+
+    const QString syncPath = m_configManager.syncStatePath();
+    if (!m_rebuildBackupPath.trimmed().isEmpty() && QFileInfo::exists(m_rebuildBackupPath)) {
+        QFile::remove(syncPath);
+        if (QFile::copy(m_rebuildBackupPath, syncPath)) {
+            m_syncStateManager.setStatePath(syncPath);
+            m_syncStateManager.load();
+            logInfo(QStringLiteral("Indice restaurado desde %1.").arg(m_rebuildBackupPath));
+        } else {
+            logErr(QStringLiteral("El indice quedo vacio y NO se pudo restaurar. Recupera a mano: cp \"%1\" \"%2\"")
+                       .arg(m_rebuildBackupPath, syncPath));
+        }
+    }
+
+    m_rebuildBackupPath.clear();
+    logErr(QStringLiteral("Reconstruccion de indice cancelada: %1").arg(reason));
+
+    loadLocalStateIntoMemory(false);
+    publishCurrentState();
 }
 
 void SyncManager::refreshAuthConfig()
@@ -1392,6 +1444,12 @@ void SyncManager::onClientRequestFailed(const QString &context, int httpStatus, 
     logErr(errorText);
     emitCounters();
 
+    // Si la peticion que fallo es la que iba a repoblar un indice recien vaciado,
+    // se deshace la reconstruccion antes de nada.
+    if (context == QStringLiteral("courses")) {
+        abortRebuildAndRestore(errorText);
+    }
+
     if (context == QStringLiteral("courses")
         && (m_syncOperationMode == SyncOperationMode::SyncAll || m_syncOperationMode == SyncOperationMode::SyncCourse)) {
         if (m_stagingSessionActive) {
@@ -1440,9 +1498,11 @@ void SyncManager::finalizeFetchOnly()
 
     if (m_rebuildAfterFetch) {
         m_rebuildAfterFetch = false;
+        m_rebuildBackupPath.clear();
         logInfo(QStringLiteral("Reindexando estado con metadata fresca..."));
         syncAll();
-        logInfo(QStringLiteral("Reconstruccion completada."));
+        logInfo(QStringLiteral("Reconstruccion completada. Materias cargadas desde Classroom: %1")
+                    .arg(m_courses.size()));
     }
 }
 

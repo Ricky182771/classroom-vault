@@ -141,6 +141,8 @@ private:
     };
 
     void refreshAuthConfig();
+    // Deshace una reconstruccion que ya vacio el indice pero no pudo repoblarlo.
+    void abortRebuildAndRestore(const QString &reason);
     void startFetchingCourses();
     bool loadLocalStateIntoMemory(bool logOnFailure = true);
     bool buildCourseFromLocalState(const QString &courseId, Course *course) const;
@@ -218,6 +220,10 @@ private:
     int m_attachmentErrors = 0;
     bool m_autoDownloadAttachments = false;
     bool m_rebuildAfterFetch = false;
+    // Backup tomado justo antes de vaciar el indice para reconstruirlo. Si la carga
+    // de Classroom falla despues del vaciado hay que volver atras: si no, el indice
+    // queda truncado y el usuario ni se entera de que existe el backup.
+    QString m_rebuildBackupPath;
     QHash<QString, int> m_checksumRepairAttempts;
 
     SyncOperationMode m_syncOperationMode = SyncOperationMode::Idle;
