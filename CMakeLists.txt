@@ -119,6 +119,35 @@ target_link_libraries(classroom-vault-core
 
 target_include_directories(classroom-vault-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# Credenciales OAuth embebidas (opcionales; el CI las inyecta desde secrets).
+#
+# IMPORTANTE: estas definiciones tienen que ir al target que compila
+# src/ConfigManager.cpp, que es el unico consumidor de las macros. Ese fichero
+# vive en classroom-vault-core, NO en el ejecutable: apuntarlas a
+# `classroom-vault` las dejaria sin efecto y el binario saldria sin credenciales
+# sin un solo aviso, porque el #ifdef simplemente cae al #else. Por eso el bloque
+# esta pegado a la definicion de la libreria y no al final del fichero.
+set(CV_OAUTH_CLIENT_ID "" CACHE STRING "Embedded Google OAuth client_id")
+set(CV_OAUTH_CLIENT_SECRET "" CACHE STRING "Embedded Google OAuth client_secret")
+
+if(CV_OAUTH_CLIENT_ID STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_ID})
+    set(CV_OAUTH_CLIENT_ID "$ENV{CV_OAUTH_CLIENT_ID}")
+endif()
+if(CV_OAUTH_CLIENT_SECRET STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_SECRET})
+    set(CV_OAUTH_CLIENT_SECRET "$ENV{CV_OAUTH_CLIENT_SECRET}")
+endif()
+
+if(NOT CV_OAUTH_CLIENT_ID STREQUAL "" AND NOT CV_OAUTH_CLIENT_SECRET STREQUAL "")
+    target_compile_definitions(classroom-vault-core PRIVATE
+        CV_EMBEDDED_CLIENT_ID="${CV_OAUTH_CLIENT_ID}"
+        CV_EMBEDDED_CLIENT_SECRET="${CV_OAUTH_CLIENT_SECRET}"
+    )
+    message(STATUS "[OAuth] Enabled embedded credentials (target classroom-vault-core)")
+else()
+    message(STATUS "[OAuth] Undefined credentials, using user config")
+endif()
+
+
 qt_add_executable(classroom-vault ${WIN32_FLAG}
     src/main.cpp
     resources/app.qrc
@@ -202,26 +231,6 @@ configure_file(
     IMMEDIATE
     @ONLY
 )
-
-set(CV_OAUTH_CLIENT_ID "" CACHE STRING "Embedded Google OAuth client_id")
-set(CV_OAUTH_CLIENT_SECRET "" CACHE STRING "Embedded Google OAuth client_secret")
-
-if(CV_OAUTH_CLIENT_ID STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_ID})
-    set(CV_OAUTH_CLIENT_ID "$ENV{CV_OAUTH_CLIENT_ID}")
-endif()
-if(CV_OAUTH_CLIENT_SECRET STREQUAL "" AND DEFINED ENV{CV_OAUTH_CLIENT_SECRET})
-    set(CV_OAUTH_CLIENT_SECRET "$ENV{CV_OAUTH_CLIENT_SECRET}")
-endif()
-
-if(NOT CV_OAUTH_CLIENT_ID STREQUAL "" AND NOT CV_OAUTH_CLIENT_SECRET STREQUAL "")
-    target_compile_definitions(classroom-vault PRIVATE
-        CV_EMBEDDED_CLIENT_ID="${CV_OAUTH_CLIENT_ID}"
-        CV_EMBEDDED_CLIENT_SECRET="${CV_OAUTH_CLIENT_SECRET}"
-    )
-    message(STATUS "[OAuth] Enabled embedded credentials")
-else()
-    message(STATUS "[OAuth] Undefined credentials, using user config")
-endif()
 
 add_custom_target(uninstall
     COMMAND ${CMAKE_COMMAND} -P "${CMAKE_BINARY_DIR}/cmake_uninstall.cmake"
