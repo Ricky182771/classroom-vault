@@ -1341,6 +1341,10 @@ void SyncManager::applyStagedDiffForScope()
 
     m_folderOrganizer.setBasePath(m_configManager.basePath());
 
+    if (m_scopedCourseIds.isEmpty()) {
+        logInfo(QStringLiteral("Sin materias en alcance: no hay nada que aplicar y no se actualiza la marca de sincronizacion."));
+    }
+
     QVector<Assignment> attachmentQueue;
     int archivedCount = 0;
 
@@ -1464,7 +1468,13 @@ void SyncManager::applyStagedDiffForScope()
         }
     }
 
-    m_syncStateManager.setLastSync(QDateTime::currentDateTimeUtc());
+    // La marca global solo se sella si el sync llego a mirar alguna materia. Con
+    // el alcance vacio (p. ej. todas las materias en semestres archivados) sellarla
+    // hacia que la cabecera anunciara "Ultima sync: ahora" sobre unas tarjetas que
+    // seguian mostrando la fecha real, meses atras.
+    if (!m_scopedCourseIds.isEmpty()) {
+        m_syncStateManager.setLastSync(QDateTime::currentDateTimeUtc());
+    }
     if (!m_syncStateManager.save()) {
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar sync_state.json"));
@@ -2069,6 +2079,7 @@ void SyncManager::syncFolders()
     const QList<Assignment> all = allAssignments();
     int current = 0;
     const int total = all.size();
+    int processedCourses = 0;
 
     for (const Course &course : m_courses) {
         const QString semester = semesterForCourse(course.id);
@@ -2095,6 +2106,8 @@ void SyncManager::syncFolders()
                         .arg(course.name));
             continue;
         }
+
+        ++processedCourses;
 
         const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
 
@@ -2259,7 +2272,11 @@ void SyncManager::syncFolders()
         }
     }
 
-    m_syncStateManager.setLastSync(QDateTime::currentDateTimeUtc());
+    if (processedCourses > 0) {
+        m_syncStateManager.setLastSync(QDateTime::currentDateTimeUtc());
+    } else {
+        logInfo(QStringLiteral("Ninguna materia entro en la sincronizacion: no se actualiza la marca de sincronizacion."));
+    }
     if (!m_syncStateManager.save()) {
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar sync_state.json"));
