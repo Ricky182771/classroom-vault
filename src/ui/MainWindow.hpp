@@ -108,6 +108,7 @@ private:
 
     QStringList knownSemesters() const;
     QVector<CourseUiState> buildCourseUiStates() const;
+    CourseUiState buildCourseUiState(const Course &course, const QList<Assignment> &assignments) const;
     QVector<AssignmentListItemData> buildCourseAssignments(const QString &courseId) const;
     QVector<PublicationListItemData> buildCoursePublications(const QString &courseId) const;
     AssignmentPreviewData buildAssignmentPreview(const QString &courseId, const QString &assignmentId) const;

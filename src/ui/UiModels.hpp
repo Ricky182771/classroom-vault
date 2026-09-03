@@ -34,6 +34,33 @@ struct CourseUiState {
     int errors = 0;
 };
 
+// Agregado del conjunto de materias VISIBLE, es decir despues del filtro global
+// de semestre. Unico origen de verdad de los contadores de contenido: si un
+// numero describe el corpus se calcula aqui; si describe la ultima ejecucion de
+// sync (errores de red, progreso) pertenece a la barra de estado, no a esto.
+struct VaultStats {
+    int courses = 0;
+    int tasks = 0;
+    int backedUpTasks = 0;
+    int attachments = 0;
+    int pending = 0;
+    int errors = 0;
+};
+
+inline VaultStats aggregateCourseStats(const QVector<CourseUiState> &courses)
+{
+    VaultStats stats;
+    stats.courses = static_cast<int>(courses.size());
+    for (const CourseUiState &course : courses) {
+        stats.tasks += course.totalTasks;
+        stats.backedUpTasks += course.backedUpTasks;
+        stats.attachments += course.attachments;
+        stats.pending += course.pending;
+        stats.errors += course.errors;
+    }
+    return stats;
+}
+
 struct ActivityItem {
     QString time;
     QString kind;

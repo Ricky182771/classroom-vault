@@ -437,118 +437,126 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
     QVector<CourseUiState> result;
     result.reserve(m_currentCourses.size());
 
+    // Unico punto de todo el flujo donde se aplica el filtro global de semestre.
+    // Todo contador de contenido debe derivarse de este vector, nunca de un
+    // entero global, o el header vuelve a mentir al cambiar de semestre.
     for (const Course &course : m_currentCourses) {
-        CourseUiState ui;
-        ui.id = course.id;
-        ui.name = course.name;
-        ui.code = course.section;
-        ui.semester = m_syncManager->semesterForCourse(course.id);
-        ui.archived = m_syncManager->isCourseArchived(course.id);
-        ui.classroomUrl = course.alternateLink;
-        ui.folderPath = m_syncManager->courseFolderPath(course.id);
-        const bool courseFolderMissing =
-            !ui.folderPath.trimmed().isEmpty() && !m_syncManager->localCourseFolderExists(course.id);
-        if (courseFolderMissing) {
-            ++ui.errors;
-        }
-
         if (m_globalSemesterFilter != QStringLiteral("Todos los semestres")) {
-            const QString effectiveSemester = ui.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : ui.semester.trimmed();
+            const QString semester = m_syncManager->semesterForCourse(course.id).trimmed();
+            const QString effectiveSemester = semester.isEmpty() ? QStringLiteral("Sin semestre") : semester;
             if (effectiveSemester != m_globalSemesterFilter) {
                 continue;
             }
         }
 
-        const QList<Assignment> list = assignmentsByCourse.value(course.id);
-        ui.totalTasks = list.size();
-        QSet<QString> seenAssignmentIds;
-        seenAssignmentIds.reserve(list.size());
-
-        QDateTime newest;
-        for (const Assignment &assignment : list) {
-            seenAssignmentIds.insert(assignment.id);
-            const QJsonObject state = m_syncManager->assignmentState(course.id, assignment.id);
-            const QString folder = state.value(QStringLiteral("folderPath")).toString().trimmed();
-            const bool assignmentFolderExists = m_syncManager->localAssignmentFolderExists(course.id, assignment.id);
-            const bool metadataExists = m_syncManager->localAssignmentMetadataExists(course.id, assignment.id);
-
-            if (assignmentFolderExists && metadataExists) {
-                ++ui.backedUpTasks;
-            }
-            if (!folder.isEmpty() && !assignmentFolderExists) {
-                ++ui.errors;
-            }
-
-            const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignment.id);
-            for (auto it = attachments.begin(); it != attachments.end(); ++it) {
-                if (!it.value().isObject()) {
-                    continue;
-                }
-                ++ui.attachments;
-
-                const QJsonObject attachmentState = it.value().toObject();
-                const QString localPath = attachmentState.value(QStringLiteral("localPath")).toString().trimmed();
-                if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
-                    ++ui.errors;
-                }
-            }
-
-            const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
-            const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
-            const QString candidateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
-            const QDateTime dt = QDateTime::fromString(candidateIso, Qt::ISODate);
-            if (dt.isValid() && (!newest.isValid() || dt > newest)) {
-                newest = dt;
-            }
-
-        }
-
-        const QStringList knownIds = m_syncManager->knownAssignmentIds(course.id);
-        for (const QString &assignmentId : knownIds) {
-            if (seenAssignmentIds.contains(assignmentId)) {
-                continue;
-            }
-
-            ++ui.totalTasks;
-            const bool assignmentFolderExists = m_syncManager->localAssignmentFolderExists(course.id, assignmentId);
-            const bool metadataExists = m_syncManager->localAssignmentMetadataExists(course.id, assignmentId);
-            if (assignmentFolderExists && metadataExists) {
-                ++ui.backedUpTasks;
-            }
-            if (!assignmentFolderExists) {
-                ++ui.errors;
-            }
-
-            const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignmentId);
-            for (auto it = attachments.begin(); it != attachments.end(); ++it) {
-                if (!it.value().isObject()) {
-                    continue;
-                }
-                ++ui.attachments;
-                const QString localPath = it.value().toObject().value(QStringLiteral("localPath")).toString().trimmed();
-                if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
-                    ++ui.errors;
-                }
-            }
-
-            const QJsonObject assignmentState = m_syncManager->assignmentState(course.id, assignmentId);
-            const QString updatedIso = assignmentState.value(QStringLiteral("lastUpdated")).toString().trimmed();
-            const QString seenIso = assignmentState.value(QStringLiteral("lastSeen")).toString().trimmed();
-            const QString candidateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
-            const QDateTime dt = QDateTime::fromString(candidateIso, Qt::ISODate);
-            if (dt.isValid() && (!newest.isValid() || dt > newest)) {
-                newest = dt;
-            }
-        }
-
-        ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
-        ui.lastSync = newest.isValid() ? formatIsoDateTime(newest.toString(Qt::ISODate)) : QStringLiteral("—");
-        ui.status = courseStatusFromCounts(ui.totalTasks, ui.pending, ui.errors);
-
-        result.append(ui);
+        result.append(buildCourseUiState(course, assignmentsByCourse.value(course.id)));
     }
 
     return result;
+}
+
+CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<Assignment> &list) const
+{
+    CourseUiState ui;
+    ui.id = course.id;
+    ui.name = course.name;
+    ui.code = course.section;
+    ui.semester = m_syncManager->semesterForCourse(course.id);
+    ui.archived = m_syncManager->isCourseArchived(course.id);
+    ui.classroomUrl = course.alternateLink;
+    ui.folderPath = m_syncManager->courseFolderPath(course.id);
+    const bool courseFolderMissing =
+        !ui.folderPath.trimmed().isEmpty() && !m_syncManager->localCourseFolderExists(course.id);
+    if (courseFolderMissing) {
+        ++ui.errors;
+    }
+
+    ui.totalTasks = list.size();
+    QSet<QString> seenAssignmentIds;
+    seenAssignmentIds.reserve(list.size());
+
+    QDateTime newest;
+    for (const Assignment &assignment : list) {
+        seenAssignmentIds.insert(assignment.id);
+        const QJsonObject state = m_syncManager->assignmentState(course.id, assignment.id);
+        const QString folder = state.value(QStringLiteral("folderPath")).toString().trimmed();
+        const bool assignmentFolderExists = m_syncManager->localAssignmentFolderExists(course.id, assignment.id);
+        const bool metadataExists = m_syncManager->localAssignmentMetadataExists(course.id, assignment.id);
+
+        if (assignmentFolderExists && metadataExists) {
+            ++ui.backedUpTasks;
+        }
+        if (!folder.isEmpty() && !assignmentFolderExists) {
+            ++ui.errors;
+        }
+
+        const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignment.id);
+        for (auto it = attachments.begin(); it != attachments.end(); ++it) {
+            if (!it.value().isObject()) {
+                continue;
+            }
+            ++ui.attachments;
+
+            const QJsonObject attachmentState = it.value().toObject();
+            const QString localPath = attachmentState.value(QStringLiteral("localPath")).toString().trimmed();
+            if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
+                ++ui.errors;
+            }
+        }
+
+        const QString updatedIso = state.value(QStringLiteral("lastUpdated")).toString().trimmed();
+        const QString seenIso = state.value(QStringLiteral("lastSeen")).toString().trimmed();
+        const QString candidateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
+        const QDateTime dt = QDateTime::fromString(candidateIso, Qt::ISODate);
+        if (dt.isValid() && (!newest.isValid() || dt > newest)) {
+            newest = dt;
+        }
+
+    }
+
+    const QStringList knownIds = m_syncManager->knownAssignmentIds(course.id);
+    for (const QString &assignmentId : knownIds) {
+        if (seenAssignmentIds.contains(assignmentId)) {
+            continue;
+        }
+
+        ++ui.totalTasks;
+        const bool assignmentFolderExists = m_syncManager->localAssignmentFolderExists(course.id, assignmentId);
+        const bool metadataExists = m_syncManager->localAssignmentMetadataExists(course.id, assignmentId);
+        if (assignmentFolderExists && metadataExists) {
+            ++ui.backedUpTasks;
+        }
+        if (!assignmentFolderExists) {
+            ++ui.errors;
+        }
+
+        const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignmentId);
+        for (auto it = attachments.begin(); it != attachments.end(); ++it) {
+            if (!it.value().isObject()) {
+                continue;
+            }
+            ++ui.attachments;
+            const QString localPath = it.value().toObject().value(QStringLiteral("localPath")).toString().trimmed();
+            if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
+                ++ui.errors;
+            }
+        }
+
+        const QJsonObject assignmentState = m_syncManager->assignmentState(course.id, assignmentId);
+        const QString updatedIso = assignmentState.value(QStringLiteral("lastUpdated")).toString().trimmed();
+        const QString seenIso = assignmentState.value(QStringLiteral("lastSeen")).toString().trimmed();
+        const QString candidateIso = !updatedIso.isEmpty() ? updatedIso : seenIso;
+        const QDateTime dt = QDateTime::fromString(candidateIso, Qt::ISODate);
+        if (dt.isValid() && (!newest.isValid() || dt > newest)) {
+            newest = dt;
+        }
+    }
+
+    ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
+    ui.lastSync = newest.isValid() ? formatIsoDateTime(newest.toString(Qt::ISODate)) : QStringLiteral("—");
+    ui.status = courseStatusFromCounts(ui.totalTasks, ui.pending, ui.errors);
+
+    return ui;
 }
 
 QVector<AssignmentListItemData> MainWindow::buildCourseAssignments(const QString &courseId) const
@@ -973,28 +981,30 @@ const Assignment *MainWindow::findAssignment(const QString &courseId, const QStr
 
 CourseUiState MainWindow::courseUiById(const QString &courseId) const
 {
-    const QVector<CourseUiState> all = buildCourseUiStates();
-    for (const CourseUiState &course : all) {
-        if (course.id == courseId) {
-            return course;
+    // Se construye directo, sin pasar por buildCourseUiStates(): el detalle de una
+    // materia debe mostrar sus cifras reales aunque el filtro global de semestre la
+    // excluya de la grilla. Antes devolvia un fallback con todos los contadores a
+    // cero y la cabecera del detalle mentia.
+    const Course *course = findCourse(courseId);
+    if (course) {
+        QList<Assignment> assignments;
+        for (const Assignment &assignment : m_currentAssignments) {
+            if (assignment.courseId == courseId) {
+                assignments.append(assignment);
+            }
         }
+        return buildCourseUiState(*course, assignments);
     }
 
-    // buildCourseUiStates() aplica el filtro global de semestre, asi que la materia
-    // mostrada puede no venir en la lista. El fallback debe conservar el estado real
-    // de archivado o la UI rehabilitaria los controles de una materia archivada.
+    // La materia ni siquiera esta cargada en memoria. El fallback debe conservar el
+    // estado real de archivado o la UI rehabilitaria los controles de una materia
+    // archivada.
     CourseUiState fallback;
     fallback.id = courseId;
     fallback.name = courseId;
     fallback.semester = m_syncManager->semesterForCourse(courseId);
     fallback.status = QStringLiteral("idle");
     fallback.archived = m_syncManager->isCourseArchived(courseId);
-
-    const Course *course = findCourse(courseId);
-    if (course) {
-        fallback.name = course->name;
-    }
-
     return fallback;
 }
 
@@ -1756,28 +1766,35 @@ void MainWindow::refreshHomeUi()
 {
     const QVector<CourseUiState> courses = buildCourseUiStates();
 
-    int pendingTotal = 0;
-    int attachmentsTotal = 0;
-    int courseErrors = 0;
-    for (const CourseUiState &course : courses) {
-        pendingTotal += course.pending;
-        attachmentsTotal += course.attachments;
-        courseErrors += course.errors;
-    }
+    // Los cinco contadores salen del MISMO vector filtrado. Antes "Cursos" y
+    // "Tareas" leian m_coursesCount / m_assignmentsCount, enteros globales que
+    // llegan por countersChanged, y no reaccionaban al filtro de semestre mientras
+    // los otros tres si: el header mostraba "Cursos 12" sobre una grilla vacia.
+    const VaultStats stats = aggregateCourseStats(courses);
+
+    // Cuando hay un semestre seleccionado se dice en la etiqueta, para que nadie
+    // vuelva a leer estas cifras como si fueran globales.
+    const bool filtered = m_globalSemesterFilter != QStringLiteral("Todos los semestres");
+    const auto kpiLabel = [this, filtered](const QString &name) {
+        return filtered ? QStringLiteral("%1 · %2").arg(name, m_globalSemesterFilter) : name;
+    };
 
     QVector<KpiData> kpis;
     kpis.reserve(5);
-    kpis.append(KpiData{QStringLiteral("Cursos"), m_coursesCount, QStringLiteral("[C]"), QStringLiteral("idle")});
-    kpis.append(KpiData{QStringLiteral("Tareas"), m_assignmentsCount, QStringLiteral("[T]"), QStringLiteral("idle")});
-    kpis.append(KpiData{QStringLiteral("Adjuntos"), attachmentsTotal, QStringLiteral("[A]"), QStringLiteral("complete")});
-    kpis.append(KpiData{QStringLiteral("Pendientes"), pendingTotal, QStringLiteral("[P]"), QStringLiteral("pending")});
-    kpis.append(KpiData{QStringLiteral("Errores"), m_errorCount + m_attachmentErrors + courseErrors, QStringLiteral("[E]"), QStringLiteral("error")});
+    kpis.append(KpiData{kpiLabel(QStringLiteral("Cursos")), stats.courses, QStringLiteral("[C]"), QStringLiteral("idle")});
+    kpis.append(KpiData{kpiLabel(QStringLiteral("Tareas")), stats.tasks, QStringLiteral("[T]"), QStringLiteral("idle")});
+    kpis.append(KpiData{kpiLabel(QStringLiteral("Adjuntos")), stats.attachments, QStringLiteral("[A]"), QStringLiteral("complete")});
+    kpis.append(KpiData{kpiLabel(QStringLiteral("Pendientes")), stats.pending, QStringLiteral("[P]"), QStringLiteral("pending")});
+    // Solo errores materializados de las materias visibles. Los errores de la
+    // sesion de sync (m_errorCount, m_attachmentErrors) son globales a proposito y
+    // ya viven en la barra de estado; sumarlos aqui mezclaba dos escalas.
+    kpis.append(KpiData{kpiLabel(QStringLiteral("Errores")), stats.errors, QStringLiteral("[E]"), QStringLiteral("error")});
 
     m_home->setKpis(kpis);
     m_home->setCourses(courses);
     m_home->setActivity(recentActivityItems(24));
     m_home->setBasePath(m_syncManager->basePath());
-    m_home->setStorageSummary(QStringLiteral("No calculado"), attachmentsTotal);
+    m_home->setStorageSummary(QStringLiteral("No calculado"), stats.attachments);
 
     const QJsonObject state = parseJsonFileObject(m_syncManager->configManager().syncStatePath());
     m_home->setLastSyncText(QStringLiteral("Ultima sync · %1").arg(formatIsoDateTime(state.value(QStringLiteral("lastSync")).toString())));
