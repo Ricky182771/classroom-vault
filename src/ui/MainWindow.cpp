@@ -166,7 +166,6 @@ void MainWindow::connectSignals()
     connect(m_topBar, &TopBarWidget::archiveSemesterRequested, this, &MainWindow::onArchiveSemesterRequested);
     connect(m_topBar, &TopBarWidget::targetSemesterChanged, this, &MainWindow::onTargetSemesterChanged);
     connect(m_topBar, &TopBarWidget::unarchiveSemesterRequested, this, &MainWindow::onUnarchiveSemesterRequested);
-    connect(m_topBar, &TopBarWidget::releaseTrappedCoursesRequested, this, &MainWindow::onReleaseTrappedCoursesRequested);
 
     connect(m_pathBar, &PathBarWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
     connect(m_pathBar, &PathBarWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
@@ -1557,55 +1556,6 @@ void MainWindow::onTargetSemesterChanged(const QString &semester)
     refreshHomeUi();
 }
 
-void MainWindow::onReleaseTrappedCoursesRequested()
-{
-    const QList<Course> trapped = m_syncManager->coursesTrappedInArchivedSemester();
-    if (trapped.isEmpty()) {
-        refreshArchiveUi();
-        return;
-    }
-
-    const QString target = m_syncManager->defaultSemester().trimmed();
-    if (target.isEmpty() || m_syncManager->isSemesterArchived(target)) {
-        appendError(QStringLiteral("Elige primero un semestre activo en «Materias nuevas →»."));
-        return;
-    }
-
-    QStringList names;
-    for (const Course &course : trapped) {
-        names.append(course.name.trimmed().isEmpty() ? course.id : course.name);
-    }
-
-    QMessageBox box(this);
-    box.setIcon(QMessageBox::Question);
-    box.setWindowTitle(QStringLiteral("Rescatar materias"));
-    box.setText(QStringLiteral("Mover %1 materias a «%2»").arg(trapped.size()).arg(target));
-    box.setInformativeText(
-        QStringLiteral("Estas materias siguen activas en Classroom, pero su semestre esta archivado, "
-                       "asi que ningun sync las respalda.\n\nEl respaldo que ya tienen en el semestre "
-                       "archivado no se toca ni se mueve: a partir de ahora se respaldaran en «%1».")
-            .arg(target));
-    box.setDetailedText(names.join(QStringLiteral("\n")));
-
-    QPushButton *confirmButton = box.addButton(QStringLiteral("Mover"), QMessageBox::AcceptRole);
-    QPushButton *cancelButton = box.addButton(QStringLiteral("Cancelar"), QMessageBox::RejectRole);
-    box.setDefaultButton(confirmButton);
-    box.setEscapeButton(cancelButton);
-    box.exec();
-
-    if (box.clickedButton() != confirmButton) {
-        return;
-    }
-
-    const int moved = m_syncManager->releaseCoursesFromArchivedSemester(target);
-    if (moved <= 0) {
-        appendError(QStringLiteral("No se pudo mover ninguna materia."));
-        return;
-    }
-
-    refreshAllViews();
-}
-
 void MainWindow::onUnarchiveSemesterRequested(const QString &semester)
 {
     const QString clean = semester.trimmed();
@@ -1963,9 +1913,6 @@ void MainWindow::refreshArchiveUi()
         && semester != Semester::all()
         && semester != Semester::none();
     m_topBar->setSemesterArchived(archivable && m_syncManager->isSemesterArchived(semester));
-    m_topBar->setTrappedCourseCount(
-        static_cast<int>(m_syncManager->coursesTrappedInArchivedSemester().size()),
-        m_syncManager->defaultSemester());
 }
 
 void MainWindow::refreshAllViews()

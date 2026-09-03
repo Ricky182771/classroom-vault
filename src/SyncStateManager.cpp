@@ -200,6 +200,11 @@ QString SyncStateManager::courseFolderPath(const QString &courseId) const
     return courseObject(courseId).value(QStringLiteral("folderPath")).toString();
 }
 
+QString SyncStateManager::courseSemester(const QString &courseId) const
+{
+    return courseObject(courseId).value(QStringLiteral("semester")).toString().trimmed();
+}
+
 QString SyncStateManager::assignmentFolderPath(const QString &courseId, const QString &assignmentId) const
 {
     return assignmentObject(courseId, assignmentId).value(QStringLiteral("folderPath")).toString();

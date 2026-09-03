@@ -60,11 +60,6 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     m_archiveButton->setProperty("variant", QStringLiteral("ghost"));
     layout->addWidget(m_archiveButton);
 
-    m_rescueButton = new QPushButton(QStringLiteral("Rescatar materias"), this);
-    m_rescueButton->setProperty("variant", QStringLiteral("primary"));
-    m_rescueButton->setVisible(false);
-    layout->addWidget(m_rescueButton);
-
     auto *stateTag = new QFrame(this);
     stateTag->setObjectName(QStringLiteral("Section"));
     auto *stateLayout = new QHBoxLayout(stateTag);
@@ -117,7 +112,6 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     connect(m_targetSemesterCombo, &QComboBox::activated, this, [this](int) {
         emit targetSemesterChanged(m_targetSemesterCombo->currentText().trimmed());
     });
-    connect(m_rescueButton, &QPushButton::clicked, this, &TopBarWidget::releaseTrappedCoursesRequested);
     connect(m_archiveButton, &QPushButton::clicked, this, [this]() {
         const QString semester = m_semesterCombo->currentText().trimmed();
         if (!isArchivableSemester(semester)) {
@@ -257,21 +251,6 @@ void TopBarWidget::setGlobalSemesterFilter(const QString &semester)
     m_semesterCombo->setCurrentIndex(idx);
     m_semesterCombo->blockSignals(false);
     updateArchiveControls();
-}
-
-void TopBarWidget::setTrappedCourseCount(int count, const QString &targetSemester)
-{
-    m_rescueButton->setVisible(count > 0);
-    if (count <= 0) {
-        return;
-    }
-
-    m_rescueButton->setText(QStringLiteral("Rescatar %1 materias").arg(count));
-    m_rescueButton->setToolTip(
-        QStringLiteral("%1 materias siguen activas en Classroom pero su semestre esta archivado, "
-                       "asi que ningun sync las respalda. Moverlas a %2.")
-            .arg(count)
-            .arg(targetSemester.trimmed().isEmpty() ? QStringLiteral("el semestre destino") : targetSemester));
 }
 
 void TopBarWidget::setTargetSemesterOptions(const QStringList &semesters, const QString &current)

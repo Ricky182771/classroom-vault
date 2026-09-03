@@ -55,6 +55,8 @@ public:
     void setCourseStateRaw(const QString &courseId, const QJsonObject &courseState);
 
     QString courseFolderPath(const QString &courseId) const;
+    // Semestre en cuya carpeta vive realmente el respaldo de esta materia.
+    QString courseSemester(const QString &courseId) const;
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
     QString assignmentMetadataPath(const QString &courseId, const QString &assignmentId) const;
     QString assignmentMetadataHash(const QString &courseId, const QString &assignmentId) const;

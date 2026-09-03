@@ -26,9 +26,6 @@ public:
     void setGlobalSemesterFilter(const QString &semester);
     QString globalSemesterFilter() const;
     void setSemesterArchived(bool archived);
-    // Aviso de materias vivas atrapadas en un semestre archivado. Solo se muestra
-    // cuando las hay: es un estado excepcional, no un control permanente.
-    void setTrappedCourseCount(int count, const QString &targetSemester);
     // Destino de escritura de las materias nuevas. Es una decision del modelo de
     // datos y por eso tiene control propio: antes se derivaba del combo de filtro,
     // de modo que mirar un semestre reasignaba las materias sin mapeo explicito.
@@ -42,7 +39,6 @@ signals:
     void globalSemesterFilterChanged(const QString &semester);
     void archiveSemesterRequested(const QString &semester);
     void unarchiveSemesterRequested(const QString &semester);
-    void releaseTrappedCoursesRequested();
     void targetSemesterChanged(const QString &semester);
 
 private:
@@ -58,7 +54,6 @@ private:
     QPushButton *m_syncButton = nullptr;
     QPushButton *m_accountButton = nullptr;
     QPushButton *m_archiveButton = nullptr;
-    QPushButton *m_rescueButton = nullptr;
     QLabel *m_archivedLockLabel = nullptr;
     bool m_semesterArchived = false;
 };

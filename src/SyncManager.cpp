@@ -159,9 +159,18 @@ bool SyncManager::isPathInsideBasePath(const QString &path) const
 
 QString SyncManager::semesterForCourse(const QString &courseId) const
 {
+    // 1. Asignacion explicita del usuario.
     const QString semester = m_semesterByCourse.value(courseId).trimmed();
     if (!semester.isEmpty() && semester != Semester::none()) {
         return semester;
+    }
+
+    // 2. El semestre en cuya carpeta vive el respaldo. Es lo que hay en disco, y
+    //    manda sobre el destino de las materias nuevas: elegir "Semestre 3" como
+    //    destino no puede arrastrar ahi el respaldo congelado del ciclo pasado.
+    const QString storedSemester = m_syncStateManager.courseSemester(courseId);
+    if (!storedSemester.isEmpty() && storedSemester != Semester::none()) {
+        return storedSemester;
     }
 
     const QString defaultSemesterValue = m_configManager.defaultSemester().trimmed();
@@ -266,6 +275,17 @@ void SyncManager::setDefaultSemester(const QString &semester)
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar config.json"));
         emitCounters();
+        return;
+    }
+
+    // Elegir el semestre destino es una decision explicita del usuario: a partir de
+    // aqui el ciclo nuevo empieza de cero ahi. Toda materia que Classroom sigue
+    // devolviendo pero que quedo apuntando a un semestre archivado se re-hoga sola,
+    // porque si no queda excluida de todos los syncs futuros sin que nada lo diga.
+    // El respaldo congelado no se mueve: se queda en su carpeta, con su identidad.
+    const QString target = m_configManager.defaultSemester().trimmed();
+    if (!target.isEmpty() && !isSemesterArchived(target)) {
+        releaseCoursesFromArchivedSemester(target);
     }
 }
 
@@ -394,7 +414,8 @@ int SyncManager::releaseCoursesFromArchivedSemester(const QString &targetSemeste
         return 0;
     }
 
-    logInfo(QStringLiteral("%1 materias devueltas a %2: %3")
+    logInfo(QStringLiteral("%1 materias empiezan de cero en %2: %3. "
+                           "El respaldo del semestre archivado se queda donde esta, intacto.")
                 .arg(moved.size())
                 .arg(target)
                 .arg(moved.join(QStringLiteral(", "))));

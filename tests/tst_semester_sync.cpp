@@ -115,7 +115,7 @@ private slots:
     void viewFilterNeverChangesTheWriteTarget();
     void countersAlwaysComeFromTheFilteredSet();
     void emptyGridSaysWhyItIsEmpty();
-    void renamedCoursesTrappedInArchivedSemesterCanBeRescued();
+    void choosingTheTargetSemesterStartsTheNewCycleFromScratch();
     void rebuildWorksOfflineAndNeverLeavesTheIndexEmpty();
     void rebuildScansTheDiskAndDropsPhantomCourses();
     void folderUidSurvivesRenamesAndSeparatesReusedCourseIds();
@@ -400,11 +400,11 @@ void TestSemesterSync::emptyGridSaysWhyItIsEmpty()
 }
 
 // El caso real: la institucion reutiliza el mismo curso de Classroom cada ciclo y
-// solo lo renombra. Sus ids quedaron mapeados a un semestre que despues se
-// archivo, asi que Classroom los sigue devolviendo pero ningun sync los respalda,
-// para siempre y sin un solo error. Deben poder rescatarse, y el respaldo nuevo
-// tiene que ir al semestre activo, no a la carpeta archivada que ya tenian.
-void TestSemesterSync::renamedCoursesTrappedInArchivedSemesterCanBeRescued()
+// solo lo renombra, asi que sus ids quedaron apuntando a un semestre que despues
+// se archivo y ningun sync volvia a respaldarlos. Elegir el semestre destino debe
+// bastar: el ciclo nuevo empieza de cero ahi y el respaldo viejo se queda
+// congelado donde esta, sin copiarse ni moverse.
+void TestSemesterSync::choosingTheTargetSemesterStartsTheNewCycleFromScratch()
 {
     makeSyncManager();
     loadFixtureAndWait();
@@ -419,27 +419,17 @@ void TestSemesterSync::renamedCoursesTrappedInArchivedSemesterCanBeRescued()
         QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2/%1").arg(courseName(0)));
     QVERIFY(QFileInfo::exists(oldFolder));
 
-    // Fin de ciclo: se archiva S2 y el destino pasa a ser S3.
+    // Fin de ciclo: se archiva S2. Classroom devuelve LOS MISMOS ids, renombrados.
     QVERIFY(m_sync->archiveSemester(QStringLiteral("Semestre 2")));
-    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
-
-    // Ciclo nuevo: Classroom devuelve LOS MISMOS ids (renombrados). Hoy quedaban
-    // atrapados: excluidos del alcance en cada sync.
     loadFixtureAndWait();
     QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), kCourseCount);
 
-    QSignalSpy finished(m_sync, &SyncManager::syncFinished);
-    m_sync->syncFolders();
-    QCOMPARE(finished.count(), 1);
-    QVERIFY2(!QFileInfo::exists(QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 3/%1").arg(courseName(0)))),
-             "sin rescatar, la materia no debe respaldarse en ningun sitio");
-
-    // Rescate.
-    QCOMPARE(m_sync->releaseCoursesFromArchivedSemester(QStringLiteral("Semestre 3")), kCourseCount);
-    QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), 0);
-
     const QMap<QString, QDateTime> archivedBefore =
         treeSnapshot(QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2")));
+
+    // Unica accion del usuario: elegir el semestre destino.
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), 0);
 
     m_sync->syncFolders();
 
@@ -449,12 +439,13 @@ void TestSemesterSync::renamedCoursesTrappedInArchivedSemesterCanBeRescued()
         QVERIFY2(QFileInfo::exists(expected), qPrintable(QStringLiteral("falta %1").arg(expected)));
     }
 
-    // Y el respaldo archivado del ciclo anterior no se movio ni se toco.
+    // El respaldo del ciclo anterior no se movio, no se copio y no se toco.
     QCOMPARE(treeSnapshot(QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2"))), archivedBefore);
     QVERIFY(QFileInfo::exists(oldFolder));
 
-    // Un destino archivado nunca es valido como rescate.
-    QCOMPARE(m_sync->releaseCoursesFromArchivedSemester(QStringLiteral("Semestre 2")), 0);
+    // Un semestre archivado nunca puede ser el destino.
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 2"));
+    QCOMPARE(m_sync->defaultSemester(), QStringLiteral("Semestre 3"));
 }
 
 // La reconstruccion ya no depende de Classroom: el disco es la fuente de verdad,
