@@ -26,6 +26,7 @@ public:
     void setStorageSummary(const QString &usedText, int attachments);
     void setLastSyncText(const QString &text);
     void setSearchText(const QString &text);
+    void setSemesterContext(const QString &semester);
 
 signals:
     void syncRequested();

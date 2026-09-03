@@ -1854,6 +1854,7 @@ void MainWindow::refreshHomeUi()
     kpis.append(KpiData{kpiLabel(QStringLiteral("Errores")), stats.errors, QStringLiteral("[E]"), QStringLiteral("error")});
 
     m_home->setKpis(kpis);
+    m_home->setSemesterContext(m_globalSemesterFilter);
     m_home->setCourses(courses);
     m_home->setActivity(recentActivityItems(24));
     m_home->setBasePath(m_syncManager->basePath());

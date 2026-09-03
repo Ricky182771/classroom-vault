@@ -170,6 +170,11 @@ void DashboardWidget::setLastSyncText(const QString &text)
     m_hero->setApiStatusText(text);
 }
 
+void DashboardWidget::setSemesterContext(const QString &semester)
+{
+    m_courseGrid->setSemesterContext(semester);
+}
+
 void DashboardWidget::setSearchText(const QString &text)
 {
     m_courseGrid->setSearchText(text);

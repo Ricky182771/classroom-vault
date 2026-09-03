@@ -1,3 +1,6 @@
+#include "../Semester.hpp"
+
+#include <QLabel>
 #include "CourseGridWidget.hpp"
 
 #include "CourseCardWidget.hpp"
@@ -79,13 +82,14 @@ void CourseGridWidget::scheduleRefresh(bool force)
 
 QVector<CourseUiState> CourseGridWidget::filteredCourses() const
 {
-    if (m_filter.isEmpty() || m_filter == QStringLiteral("all")) {
-        return m_courses;
-    }
+    // El filtro "all" solo desactiva la comparacion de estado. Antes hacia un
+    // return temprano que se saltaba tambien la busqueda por texto: escribir en
+    // el buscador con el filtro en "Todos" no filtraba nada.
+    const bool filterByStatus = !m_filter.isEmpty() && m_filter != QStringLiteral("all");
 
     QVector<CourseUiState> result;
     for (const CourseUiState &course : m_courses) {
-        if (course.status.toLower() != m_filter) {
+        if (filterByStatus && course.status.toLower() != m_filter) {
             continue;
         }
 
@@ -100,6 +104,35 @@ QVector<CourseUiState> CourseGridWidget::filteredCourses() const
         result.append(course);
     }
     return result;
+}
+
+void CourseGridWidget::setSemesterContext(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (clean == m_semesterContext) {
+        return;
+    }
+    m_semesterContext = clean;
+    scheduleRefresh(true);
+}
+
+QString CourseGridWidget::emptyStateMessage() const
+{
+    if (!m_courses.isEmpty()) {
+        return QStringLiteral("Ninguna materia coincide con el filtro o la busqueda actual.");
+    }
+
+    if (m_semesterContext.isEmpty() || m_semesterContext == Semester::all()) {
+        return QStringLiteral("Todavia no hay materias respaldadas. Inicia sesion y sincroniza con Classroom.");
+    }
+
+    if (m_semesterContext == Semester::none()) {
+        return QStringLiteral("No hay materias sin semestre asignado.");
+    }
+
+    return QStringLiteral("«%1» no tiene materias todavia.\n"
+                          "Las materias nuevas se guardan en el semestre elegido en «Materias nuevas →».")
+        .arg(m_semesterContext);
 }
 
 void CourseGridWidget::refreshGrid(bool force)
@@ -118,6 +151,17 @@ void CourseGridWidget::refreshGrid(bool force)
     }
 
     const QVector<CourseUiState> list = filteredCourses();
+
+    if (list.isEmpty()) {
+        auto *empty = new QLabel(emptyStateMessage(), m_gridContainer);
+        empty->setAlignment(Qt::AlignCenter);
+        empty->setWordWrap(true);
+        empty->setProperty("muted", true);
+        empty->setStyleSheet(QStringLiteral("padding:32px;background:transparent;border:none;"));
+        m_grid->addWidget(empty, 0, 0, 1, qMax(1, columns));
+        m_grid->setRowStretch(1, 1);
+        return;
+    }
 
     int row = 0;
     int col = 0;
