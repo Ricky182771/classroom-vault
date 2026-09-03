@@ -34,6 +34,7 @@ public:
 
     bool isSemesterArchived(const QString &semester) const;
     bool archiveSemester(const QString &semester);
+    bool unarchiveSemester(const QString &semester);
     QStringList archivedSemesters() const;
     bool isCourseArchived(const QString &courseId) const;
 

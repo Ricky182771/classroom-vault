@@ -1,3 +1,4 @@
+#include "../Semester.hpp"
 #include "TopBarWidget.hpp"
 
 #include <QHBoxLayout>
@@ -33,8 +34,8 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     m_semesterCombo = new QComboBox(this);
     m_semesterCombo->setMinimumWidth(170);
     // Contenido inicial minimo: MainWindow lo repuebla con los semestres reales.
-    m_semesterCombo->addItem(QStringLiteral("Todos los semestres"));
-    m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
+    m_semesterCombo->addItem(Semester::all());
+    m_semesterCombo->addItem(Semester::none());
     layout->addWidget(m_semesterCombo);
 
     auto *targetLabel = new QLabel(QStringLiteral("Materias nuevas \u2192"), this);
@@ -113,10 +114,14 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     });
     connect(m_archiveButton, &QPushButton::clicked, this, [this]() {
         const QString semester = m_semesterCombo->currentText().trimmed();
-        if (!isArchivableSemester(semester) || m_semesterArchived) {
+        if (!isArchivableSemester(semester)) {
             return;
         }
-        emit archiveSemesterRequested(semester);
+        if (m_semesterArchived) {
+            emit unarchiveSemesterRequested(semester);
+        } else {
+            emit archiveSemesterRequested(semester);
+        }
     });
 
     updateArchiveControls();
@@ -129,7 +134,7 @@ bool TopBarWidget::isArchivableSemester(const QString &semester)
         return false;
     }
     // "Todos los semestres" y "Sin semestre" son centinelas, no semestres reales.
-    return clean != QStringLiteral("Todos los semestres") && clean != QStringLiteral("Sin semestre");
+    return clean != Semester::all() && clean != Semester::none();
 }
 
 void TopBarWidget::updateArchiveControls()
@@ -138,13 +143,19 @@ void TopBarWidget::updateArchiveControls()
     const bool archivable = isArchivableSemester(semester);
 
     m_archivedLockLabel->setVisible(archivable && m_semesterArchived);
-    m_archiveButton->setEnabled(archivable && !m_semesterArchived);
+    m_archiveButton->setEnabled(archivable);
+    // El boton alterna: archivar era irreversible desde la app, asi que un mapeo
+    // escrito por error dejaba el semestre congelado para siempre.
+    m_archiveButton->setText(archivable && m_semesterArchived
+                                 ? QStringLiteral("Desarchivar semestre")
+                                 : QStringLiteral("Archivar semestre"));
 
     if (!archivable) {
         m_archiveButton->setToolTip(
             QStringLiteral("Selecciona un semestre concreto para poder archivarlo."));
     } else if (m_semesterArchived) {
-        m_archiveButton->setToolTip(QStringLiteral("Semestre archivado: solo lectura"));
+        m_archiveButton->setToolTip(
+            QStringLiteral("Desarchivar %1: vuelve a sincronizarse con Classroom.").arg(semester));
     } else {
         m_archiveButton->setToolTip(
             QStringLiteral("Archivar %1: lo desconecta de Classroom y lo deja en solo lectura.").arg(semester));
@@ -181,7 +192,7 @@ void TopBarWidget::setSearchPlaceholder(const QString &placeholder)
 void TopBarWidget::setAvailableSemesters(const QStringList &semesters)
 {
     QStringList items;
-    items << QStringLiteral("Todos los semestres") << QStringLiteral("Sin semestre");
+    items << Semester::all() << Semester::none();
     for (const QString &semester : semesters) {
         const QString clean = semester.trimmed();
         if (!clean.isEmpty() && !items.contains(clean)) {
@@ -217,7 +228,7 @@ void TopBarWidget::setAvailableSemesters(const QStringList &semesters)
 
 void TopBarWidget::setGlobalSemesterFilter(const QString &semester)
 {
-    const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : semester.trimmed();
+    const QString clean = semester.trimmed().isEmpty() ? Semester::all() : semester.trimmed();
     int idx = m_semesterCombo->findText(clean);
     if (idx < 0) {
         // Antes se descartaba en silencio y el combo quedaba mostrando otro semestre.

@@ -1,3 +1,4 @@
+#include "Semester.hpp"
 #include "ConfigManager.hpp"
 #include "Paths.hpp"
 
@@ -57,7 +58,7 @@ void applyOAuthCredentialsFile(QJsonObject &oauth, const QString &configDir)
 
 QString noSemesterSentinel()
 {
-    return QStringLiteral("Sin semestre");
+    return Semester::none();
 }
 
 QString embeddedClientId()
@@ -91,7 +92,7 @@ void ConfigManager::loadDefaults()
     m_basePath.clear();
     m_courseSemesters.clear();
     m_legacyCourseSemestersByName.clear();
-    m_globalSemesterFilter = QStringLiteral("Todos los semestres");
+    m_globalSemesterFilter = Semester::all();
     m_defaultSemester.clear();
     m_archivedSemesters.clear();
 
@@ -167,7 +168,7 @@ bool ConfigManager::load()
     m_basePath = root.value(QStringLiteral("basePath")).toString();
     m_globalSemesterFilter = root.value(QStringLiteral("globalSemesterFilter")).toString().trimmed();
     if (m_globalSemesterFilter.isEmpty()) {
-        m_globalSemesterFilter = QStringLiteral("Todos los semestres");
+        m_globalSemesterFilter = Semester::all();
     }
     m_defaultSemester = root.value(QStringLiteral("defaultSemester")).toString().trimmed();
 
@@ -274,7 +275,7 @@ void ConfigManager::setBasePath(const QString &path)
 QString ConfigManager::semesterForCourse(const QString &courseId) const
 {
     const QString semester = m_courseSemesters.value(courseId).trimmed();
-    return semester.isEmpty() ? QStringLiteral("Sin semestre") : semester;
+    return semester.isEmpty() ? Semester::none() : semester;
 }
 
 void ConfigManager::setSemesterForCourse(const QString &courseId, const QString &semester)
@@ -304,13 +305,13 @@ QString ConfigManager::legacySemesterForCourseName(const QString &courseName) co
 
 QString ConfigManager::globalSemesterFilter() const
 {
-    return m_globalSemesterFilter.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : m_globalSemesterFilter.trimmed();
+    return m_globalSemesterFilter.trimmed().isEmpty() ? Semester::all() : m_globalSemesterFilter.trimmed();
 }
 
 void ConfigManager::setGlobalSemesterFilter(const QString &semester)
 {
     const QString clean = semester.trimmed();
-    m_globalSemesterFilter = clean.isEmpty() ? QStringLiteral("Todos los semestres") : clean;
+    m_globalSemesterFilter = clean.isEmpty() ? Semester::all() : clean;
 }
 
 QString ConfigManager::defaultSemester() const
@@ -346,6 +347,15 @@ bool ConfigManager::archiveSemester(const QString &semester)
     }
     m_archivedSemesters.insert(clean);
     return true;
+}
+
+bool ConfigManager::unarchiveSemester(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty()) {
+        return false;
+    }
+    return m_archivedSemesters.remove(clean);
 }
 
 QStringList ConfigManager::archivedSemesters() const

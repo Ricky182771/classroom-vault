@@ -1,3 +1,4 @@
+#include "../Semester.hpp"
 #include "CourseCardWidget.hpp"
 
 #include <QGridLayout>
@@ -115,7 +116,7 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
 
     m_nameLabel->setText(course.name.isEmpty() ? QStringLiteral("Materia sin nombre") : course.name);
     m_codeLabel->setText(course.code.isEmpty() ? QStringLiteral("—") : course.code);
-    m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.isEmpty() ? QStringLiteral("Sin semestre") : course.semester));
+    m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.isEmpty() ? Semester::none() : course.semester));
     QString stats = QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5")
                         .arg(course.backedUpTasks)
                         .arg(course.totalTasks)
@@ -164,7 +165,7 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
     m_semesterLabel->setText(
         course.archived
             ? QStringLiteral("Semestre: %1 \u00b7 \U0001F512 Archivado (solo lectura)")
-                  .arg(course.semester.isEmpty() ? QStringLiteral("Sin semestre") : course.semester)
+                  .arg(course.semester.isEmpty() ? Semester::none() : course.semester)
             : m_semesterLabel->text());
 }
 

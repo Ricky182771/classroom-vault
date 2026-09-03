@@ -50,6 +50,7 @@ public:
     bool isCourseArchived(const QString &courseId) const;
     QStringList archivedSemesters() const;
     bool archiveSemester(const QString &semester);
+    bool unarchiveSemester(const QString &semester);
     QString ensureSemesterFolderExists(const QString &semester);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;

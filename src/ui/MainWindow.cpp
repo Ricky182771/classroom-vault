@@ -1,3 +1,4 @@
+#include "../Semester.hpp"
 #include "MainWindow.hpp"
 
 #include "../GoogleAuth.hpp"
@@ -164,6 +165,7 @@ void MainWindow::connectSignals()
     connect(m_topBar, &TopBarWidget::globalSemesterFilterChanged, this, &MainWindow::onGlobalSemesterFilterChanged);
     connect(m_topBar, &TopBarWidget::archiveSemesterRequested, this, &MainWindow::onArchiveSemesterRequested);
     connect(m_topBar, &TopBarWidget::targetSemesterChanged, this, &MainWindow::onTargetSemesterChanged);
+    connect(m_topBar, &TopBarWidget::unarchiveSemesterRequested, this, &MainWindow::onUnarchiveSemesterRequested);
 
     connect(m_pathBar, &PathBarWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
     connect(m_pathBar, &PathBarWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
@@ -377,8 +379,8 @@ QStringList MainWindow::knownSemesters() const
     const auto addSemester = [&semesters](const QString &value) {
         const QString clean = value.trimmed();
         if (clean.isEmpty()
-            || clean == QStringLiteral("Sin semestre")
-            || clean == QStringLiteral("Todos los semestres")
+            || clean == Semester::none()
+            || clean == Semester::all()
             || semesters.contains(clean)) {
             return;
         }
@@ -447,9 +449,9 @@ QVector<CourseUiState> MainWindow::buildCourseUiStates() const
     // Todo contador de contenido debe derivarse de este vector, nunca de un
     // entero global, o el header vuelve a mentir al cambiar de semestre.
     for (const Course &course : m_currentCourses) {
-        if (m_globalSemesterFilter != QStringLiteral("Todos los semestres")) {
+        if (m_globalSemesterFilter != Semester::all()) {
             const QString semester = m_syncManager->semesterForCourse(course.id).trimmed();
-            const QString effectiveSemester = semester.isEmpty() ? QStringLiteral("Sin semestre") : semester;
+            const QString effectiveSemester = semester.isEmpty() ? Semester::none() : semester;
             if (effectiveSemester != m_globalSemesterFilter) {
                 continue;
             }
@@ -1340,7 +1342,7 @@ void MainWindow::onSyncCourseRequested(const QString &courseId)
 
 void MainWindow::onCourseSemesterChanged(const QString &courseId, const QString &semester)
 {
-    const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : semester.trimmed();
+    const QString clean = semester.trimmed().isEmpty() ? Semester::none() : semester.trimmed();
     const QString currentSemester = m_syncManager->semesterForCourse(courseId);
 
     // Un semestre archivado esta en solo lectura: ni se puede sacar una materia de
@@ -1509,7 +1511,7 @@ void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
     // aterrizaban en disco las materias sin mapeo explicito en el siguiente sync.
     // El destino de escritura vive ahora en su propio control (ver
     // onTargetSemesterChanged).
-    const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : semester.trimmed();
+    const QString clean = semester.trimmed().isEmpty() ? Semester::all() : semester.trimmed();
     m_globalSemesterFilter = clean;
     m_syncManager->setGlobalSemesterFilter(clean);
 
@@ -1554,12 +1556,32 @@ void MainWindow::onTargetSemesterChanged(const QString &semester)
     refreshHomeUi();
 }
 
+void MainWindow::onUnarchiveSemesterRequested(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty() || clean == Semester::all() || clean == Semester::none()) {
+        return;
+    }
+
+    if (!m_syncManager->isSemesterArchived(clean)) {
+        refreshArchiveUi();
+        return;
+    }
+
+    if (!m_syncManager->unarchiveSemester(clean)) {
+        appendError(QStringLiteral("No se pudo desarchivar el semestre %1.").arg(clean));
+        return;
+    }
+
+    refreshAllViews();
+}
+
 void MainWindow::onArchiveSemesterRequested(const QString &semester)
 {
     const QString clean = semester.trimmed();
     if (clean.isEmpty()
-        || clean == QStringLiteral("Todos los semestres")
-        || clean == QStringLiteral("Sin semestre")) {
+        || clean == Semester::all()
+        || clean == Semester::none()) {
         appendError(QStringLiteral("Selecciona un semestre concreto para archivarlo."));
         return;
     }
@@ -1815,7 +1837,7 @@ void MainWindow::refreshHomeUi()
 
     // Cuando hay un semestre seleccionado se dice en la etiqueta, para que nadie
     // vuelva a leer estas cifras como si fueran globales.
-    const bool filtered = m_globalSemesterFilter != QStringLiteral("Todos los semestres");
+    const bool filtered = m_globalSemesterFilter != Semester::all();
     const auto kpiLabel = [this, filtered](const QString &name) {
         return filtered ? QStringLiteral("%1 · %2").arg(name, m_globalSemesterFilter) : name;
     };
@@ -1870,8 +1892,8 @@ QStringList MainWindow::activeSemesters() const
     QStringList result;
     const QStringList all = knownSemesters();
     for (const QString &semester : all) {
-        if (semester == QStringLiteral("Todos los semestres")
-            || semester == QStringLiteral("Sin semestre")
+        if (semester == Semester::all()
+            || semester == Semester::none()
             || m_syncManager->isSemesterArchived(semester)) {
             continue;
         }
@@ -1887,8 +1909,8 @@ void MainWindow::refreshArchiveUi()
 
     const QString semester = m_globalSemesterFilter.trimmed();
     const bool archivable = !semester.isEmpty()
-        && semester != QStringLiteral("Todos los semestres")
-        && semester != QStringLiteral("Sin semestre");
+        && semester != Semester::all()
+        && semester != Semester::none();
     m_topBar->setSemesterArchived(archivable && m_syncManager->isSemesterArchived(semester));
 }
 

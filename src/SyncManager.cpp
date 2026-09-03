@@ -1,3 +1,4 @@
+#include "Semester.hpp"
 #include "SyncManager.hpp"
 
 #include "Utils.hpp"
@@ -154,28 +155,24 @@ bool SyncManager::isPathInsideBasePath(const QString &path) const
 QString SyncManager::semesterForCourse(const QString &courseId) const
 {
     const QString semester = m_semesterByCourse.value(courseId).trimmed();
-    if (!semester.isEmpty() && semester != QStringLiteral("Sin semestre")) {
+    if (!semester.isEmpty() && semester != Semester::none()) {
         return semester;
     }
 
     const QString defaultSemesterValue = m_configManager.defaultSemester().trimmed();
-    if (!defaultSemesterValue.isEmpty() && defaultSemesterValue != QStringLiteral("Todos los semestres")) {
+    if (!defaultSemesterValue.isEmpty() && defaultSemesterValue != Semester::all()) {
         return defaultSemesterValue;
     }
-    return QStringLiteral("Sin semestre");
+    return Semester::none();
 }
 
 void SyncManager::setSemesterForCourse(const QString &courseId, const QString &semester)
 {
     const QString value = semester.trimmed();
 
-    // Un semestre archivado es solo lectura en ambas direcciones: no se le puede
-    // sacar una materia (la des-archivaria) ni meter una nueva.
-    if (isCourseArchived(courseId)) {
-        logArch(QStringLiteral("Semestre archivado en solo lectura. Se rechaza cambiar de semestre la materia: %1")
-                    .arg(courseId));
-        return;
-    }
+    // Un semestre archivado no admite materias nuevas. Sacar una si esta
+    // permitido: era la unica via para reparar un mapeo escrito por error, y
+    // archiveSemester llego a escribir varios que el usuario nunca pidio.
     if (!value.isEmpty() && isSemesterArchived(value)) {
         logArch(QStringLiteral("Semestre archivado en solo lectura. Se rechaza asignarle la materia: %1")
                     .arg(courseId));
@@ -289,13 +286,24 @@ bool SyncManager::archiveSemester(const QString &semester)
 {
     const QString clean = semester.trimmed();
 
-    // Se fija el estado antes de archivar. Sin esto "archivado" seria un valor
-    // derivado: una materia que cae en este semestre solo por el fallback a
-    // defaultSemester se des-archivaria sola en cuanto ese fallback cambiara.
     if (!m_configManager.archiveSemester(clean)) {
         return false;
     }
 
+    // El fallback se limpia ANTES de fijar nada. Al reves, semesterForCourse aun
+    // resolvia por defaultSemester y el bucle de abajo convertia ese valor
+    // derivado en mapeo explicito para TODA materia sin mapeo propio: archivar un
+    // semestre se llevaba dentro a las materias que solo pasaban por ahi, y como
+    // sacarlas estaba prohibido, el estado quedaba inamovible.
+    if (m_configManager.defaultSemester().trimmed() == clean) {
+        m_configManager.setDefaultSemester(QString());
+        logArch(QStringLiteral("Se limpio el semestre por defecto porque quedo archivado: %1").arg(clean));
+    }
+
+    // Se fija el mapeo de las materias que YA lo tenian apuntando aqui, para que
+    // "archivado" no dependa de un valor derivado. Nunca de las que solo caian por
+    // el fallback: esas se quedan fuera, y lo que protege su respaldo en disco es
+    // pathIsUnderArchivedSemester, que mira la ruta real.
     QStringList pinnedCourseIds;
     QStringList candidateCourseIds;
     for (const Course &course : m_courses) {
@@ -307,7 +315,7 @@ bool SyncManager::archiveSemester(const QString &semester)
         }
     }
     for (const QString &courseId : candidateCourseIds) {
-        if (semesterForCourse(courseId) != clean) {
+        if (m_configManager.semesterMapping().value(courseId).trimmed() != clean) {
             continue;
         }
         if (m_semesterByCourse.value(courseId).trimmed() == clean) {
@@ -316,13 +324,6 @@ bool SyncManager::archiveSemester(const QString &semester)
         m_semesterByCourse.insert(courseId, clean);
         m_configManager.setSemesterForCourse(courseId, clean);
         pinnedCourseIds.append(courseId);
-    }
-
-    // Si el semestre archivado era el valor por defecto, se limpia: si no, toda materia
-    // nueva sin mapeo explicito caeria dentro de un semestre archivado y naceria congelada.
-    if (m_configManager.defaultSemester().trimmed() == clean) {
-        m_configManager.setDefaultSemester(QString());
-        logArch(QStringLiteral("Se limpio el semestre por defecto porque quedo archivado: %1").arg(clean));
     }
 
     if (!m_configManager.save()) {
@@ -346,10 +347,31 @@ bool SyncManager::archiveSemester(const QString &semester)
     return true;
 }
 
+bool SyncManager::unarchiveSemester(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (!m_configManager.unarchiveSemester(clean)) {
+        return false;
+    }
+
+    if (!m_configManager.save()) {
+        // Sin persistencia el semestre volveria a estar archivado al reiniciar.
+        ++m_errorCount;
+        logErr(QStringLiteral("No se pudo guardar config.json. El semestre NO quedo desarchivado."));
+        emitCounters();
+        return false;
+    }
+
+    logArch(QStringLiteral("Semestre desarchivado: %1. Vuelve a sincronizarse con Classroom.").arg(clean));
+    emit semesterArchivedChanged(clean);
+    emit syncStateChanged();
+    return true;
+}
+
 QString SyncManager::ensureSemesterFolderExists(const QString &semester)
 {
     const QString clean = semester.trimmed();
-    if (clean.isEmpty() || clean == QStringLiteral("Todos los semestres")) {
+    if (clean.isEmpty() || clean == Semester::all()) {
         return QString();
     }
 
@@ -1063,7 +1085,7 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         const QString legacySemester = m_configManager.legacySemesterForCourseName(course.name);
         if (!legacySemester.isEmpty()) {
             // "Sin semestre" heredado se considera valor por defecto, no asignacion manual.
-            if (legacySemester != QStringLiteral("Sin semestre")) {
+            if (legacySemester != Semester::none()) {
                 m_semesterByCourse.insert(course.id, legacySemester);
                 m_configManager.setSemesterForCourse(course.id, legacySemester);
             } else {

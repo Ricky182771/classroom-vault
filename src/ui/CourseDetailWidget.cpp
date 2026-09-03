@@ -1,3 +1,4 @@
+#include "../Semester.hpp"
 #include "CourseDetailWidget.hpp"
 
 #include "AssignmentListItemWidget.hpp"
@@ -62,7 +63,7 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
     semesterRow->addWidget(semesterEditLabel);
     m_semesterCombo = new QComboBox(headerCard);
     // Contenido inicial minimo: MainWindow lo repuebla con los semestres reales.
-    m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
+    m_semesterCombo->addItem(Semester::none());
     semesterRow->addWidget(m_semesterCombo);
     semesterRow->addStretch(1);
     headerLayout->addLayout(semesterRow);
@@ -163,7 +164,7 @@ CourseDetailWidget::CourseDetailWidget(QWidget *parent)
 void CourseDetailWidget::setAvailableSemesters(const QStringList &semesters)
 {
     QStringList items;
-    items << QStringLiteral("Sin semestre");
+    items << Semester::none();
     for (const QString &semester : semesters) {
         const QString clean = semester.trimmed();
         if (!clean.isEmpty() && !items.contains(clean)) {
@@ -198,8 +199,8 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
     m_course = course;
 
     m_titleLabel->setText(course.name.trimmed().isEmpty() ? QStringLiteral("Materia") : course.name.trimmed());
-    m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed()));
-    const QString targetSemester = course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed();
+    m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.trimmed().isEmpty() ? Semester::none() : course.semester.trimmed()));
+    const QString targetSemester = course.semester.trimmed().isEmpty() ? Semester::none() : course.semester.trimmed();
     int semesterIndex = m_semesterCombo->findText(targetSemester);
     if (semesterIndex < 0) {
         // El semestre de la materia siempre debe ser visible; si no, el combo mostraria
@@ -238,7 +239,7 @@ void CourseDetailWidget::setCourse(const CourseUiState &course)
     m_semesterLabel->setText(
         archived
             ? QStringLiteral("Semestre: %1 \u00b7 \U0001F512 Archivado (desconectado de Classroom)")
-                  .arg(course.semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : course.semester.trimmed())
+                  .arg(course.semester.trimmed().isEmpty() ? Semester::none() : course.semester.trimmed())
             : m_semesterLabel->text());
 }
 

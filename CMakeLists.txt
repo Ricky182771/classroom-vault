@@ -46,6 +46,7 @@ qt_add_executable(classroom-vault ${WIN32_FLAG}
     src/AttachmentChecksumManager.cpp
     src/Models.hpp
     src/Paths.hpp
+    src/Semester.hpp
     src/Utils.hpp
     src/ui/MainWindow.hpp
     src/ui/MainWindow.cpp

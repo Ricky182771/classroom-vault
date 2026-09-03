@@ -38,6 +38,7 @@ signals:
     void searchTextChanged(const QString &text);
     void globalSemesterFilterChanged(const QString &semester);
     void archiveSemesterRequested(const QString &semester);
+    void unarchiveSemesterRequested(const QString &semester);
     void targetSemesterChanged(const QString &semester);
 
 private:

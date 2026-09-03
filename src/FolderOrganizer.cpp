@@ -1,3 +1,4 @@
+#include "Semester.hpp"
 #include "FolderOrganizer.hpp"
 
 #include "Utils.hpp"
@@ -128,7 +129,7 @@ bool FolderOrganizer::ensureDir(const QString &path) const
 
 QString FolderOrganizer::createSemesterFolder(const QString &semester) const
 {
-    const QString semesterName = sanitizeFileName(semester.trimmed().isEmpty() ? QStringLiteral("Sin semestre") : semester);
+    const QString semesterName = sanitizeFileName(semester.trimmed().isEmpty() ? Semester::none() : semester);
     const QString semesterPath = QDir(tasksRootPath()).filePath(semesterName);
     ensureDir(semesterPath);
     return semesterPath;

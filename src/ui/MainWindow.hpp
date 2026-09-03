@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Semester.hpp"
 #include "../Models.hpp"
 #include "UiModels.hpp"
 
@@ -89,6 +90,7 @@ private slots:
     void onGlobalSemesterFilterChanged(const QString &semester);
     void onTargetSemesterChanged(const QString &semester);
     void onArchiveSemesterRequested(const QString &semester);
+    void onUnarchiveSemesterRequested(const QString &semester);
     void onSemesterArchivedChanged(const QString &semester);
 
     void appendLog(const QString &message);
@@ -155,7 +157,7 @@ private:
 
     QString m_homeSearchText;
     QString m_courseSearchText;
-    QString m_globalSemesterFilter = QStringLiteral("Todos los semestres");
+    QString m_globalSemesterFilter = Semester::all();
 
     QStringList m_logLines;
     QString m_logFilePath;
