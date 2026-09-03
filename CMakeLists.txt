@@ -20,8 +20,11 @@ if(WIN32)
     set(WIN32_FLAG WIN32)
 endif()
 
-qt_add_executable(classroom-vault ${WIN32_FLAG}
-    src/main.cpp
+# Todo el codigo de dominio y de UI vive en una libreria que comparten el
+# ejecutable y las pruebas: la lista de fuentes es explicita (no hay glob) y
+# duplicarla en dos targets la habria dejado desincronizada en la primera
+# incorporacion.
+qt_add_library(classroom-vault-core STATIC
     src/GoogleAuth.hpp
     src/GoogleAuth.cpp
     src/ClassroomClient.hpp
@@ -105,21 +108,51 @@ qt_add_executable(classroom-vault ${WIN32_FLAG}
     src/ui/HistoryViewWidget.cpp
     src/ui/SettingsViewWidget.hpp
     src/ui/SettingsViewWidget.cpp
-    resources/app.qrc
-    $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/app.rc>
 )
 
-target_link_libraries(classroom-vault
-    PRIVATE
+target_link_libraries(classroom-vault-core
+    PUBLIC
         Qt6::Core
         Qt6::Network
         Qt6::Widgets
 )
 
+target_include_directories(classroom-vault-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+qt_add_executable(classroom-vault ${WIN32_FLAG}
+    src/main.cpp
+    resources/app.qrc
+    $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/app.rc>
+)
+
+target_link_libraries(classroom-vault PRIVATE classroom-vault-core)
+
 # MSVC: enforce UTF-8 source and strict mode so that Spanish string literals
 # compile correctly on Windows regardless of the system code page.
 if(MSVC)
+    target_compile_options(classroom-vault-core PRIVATE /utf-8 /W4 /permissive-)
     target_compile_options(classroom-vault PRIVATE /utf-8 /W4 /permissive-)
+endif()
+
+# Pruebas: Qt6::Test viene con Qt, no añade dependencias nuevas. Si el componente
+# no esta instalado, el proyecto sigue configurando sin pruebas.
+find_package(Qt6 QUIET COMPONENTS Test)
+if(Qt6Test_FOUND)
+    enable_testing()
+
+    qt_add_executable(classroom-vault-tests
+        tests/tst_semester_sync.cpp
+    )
+    target_link_libraries(classroom-vault-tests PRIVATE classroom-vault-core Qt6::Test)
+    if(MSVC)
+        target_compile_options(classroom-vault-tests PRIVATE /utf-8 /permissive-)
+    endif()
+
+    add_test(NAME semester-sync COMMAND classroom-vault-tests)
+    # Sin servidor grafico las pruebas de widget necesitan el backend offscreen.
+    set_tests_properties(semester-sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+else()
+    message(STATUS "Qt6::Test no encontrado: no se construyen las pruebas")
 endif()
 
 install(TARGETS classroom-vault
