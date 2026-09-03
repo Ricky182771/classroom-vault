@@ -142,10 +142,13 @@ void AttachmentChecksumManager::verifyAllKnownAttachments()
 
     emit checksumLog(QStringLiteral("HASH  Verificando checksums en segundo plano..."));
 
+    // El filtro se aplica materia a materia, pero se reporta una sola vez: antes
+    // emitia una linea [ARCH] por materia archivada en cada verificacion de fondo.
+    int archivedSkipped = 0;
     const QStringList courseIds = m_syncStateManager->courseIds();
     for (const QString &courseId : courseIds) {
         if (m_archivedCourseIds.contains(courseId)) {
-            emit checksumLog(QStringLiteral("[ARCH] Semestre archivado en solo lectura. Se omite verificacion de checksums: %1").arg(courseId));
+            ++archivedSkipped;
             continue;
         }
 
@@ -153,6 +156,12 @@ void AttachmentChecksumManager::verifyAllKnownAttachments()
         for (const QString &assignmentId : assignmentIds) {
             verifyForAssignment(courseId, assignmentId);
         }
+    }
+
+    if (archivedSkipped > 0) {
+        emit checksumLog(
+            QStringLiteral("[ARCH] Semestre archivado (solo lectura): se omite la verificacion de checksums en %1 materias.")
+                .arg(archivedSkipped));
     }
 }
 

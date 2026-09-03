@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMap>
 #include <QSet>
 
 namespace {
@@ -646,6 +647,7 @@ void SyncManager::mergeArchivedLocalCourses()
         return;
     }
 
+    QMap<QString, QStringList> preservedBySemester;
     const QStringList localCourseIds = m_syncStateManager.courseIds();
     for (const QString &courseId : localCourseIds) {
         if (remoteCourseIds.contains(courseId)) {
@@ -665,8 +667,14 @@ void SyncManager::mergeArchivedLocalCourses()
             m_assignmentsByCourse.insert(courseId, loadLocalAssignmentsForCourse(courseId));
         }
 
-        logArch(QStringLiteral("Materia de semestre archivado preservada desde estado local (no vino de Classroom): %1")
-                    .arg(course.name));
+        preservedBySemester[semesterForCourse(courseId)].append(course.name);
+    }
+
+    for (auto it = preservedBySemester.constBegin(); it != preservedBySemester.constEnd(); ++it) {
+        logArch(QStringLiteral("Semestre archivado (solo lectura): %1. Materias preservadas desde el estado local (%2): %3")
+                    .arg(it.key())
+                    .arg(it.value().size())
+                    .arg(it.value().join(QStringLiteral(", "))));
     }
 }
 
@@ -1085,19 +1093,24 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
     // por lo que no pueden generar deleted_archived ni reescritura de metadata.
     QList<Course> activeCourses;
     activeCourses.reserve(m_courses.size());
-    int archivedSkipped = 0;
+    // Una sola linea de resumen, no una por materia: este bucle ES el filtro y
+    // recorrerlo entero es correcto, pero logearlo por elemento inundaba la vista
+    // de actividad con una veintena de lineas [ARCH] en el mismo segundo.
+    QMap<QString, QStringList> skippedBySemester;
     for (const Course &course : m_courses) {
         if (isCourseArchived(course.id)) {
-            ++archivedSkipped;
-            logArch(QStringLiteral("Semestre archivado en solo lectura. Se omite de la sincronizacion: %1")
-                        .arg(course.name.trimmed().isEmpty() ? course.id : course.name));
+            skippedBySemester[semesterForCourse(course.id)].append(
+                course.name.trimmed().isEmpty() ? course.id : course.name);
             continue;
         }
         activeCourses.append(course);
     }
 
-    if (archivedSkipped > 0) {
-        logArch(QStringLiteral("Materias omitidas por semestre archivado: %1").arg(archivedSkipped));
+    for (auto it = skippedBySemester.constBegin(); it != skippedBySemester.constEnd(); ++it) {
+        logArch(QStringLiteral("Semestre archivado (solo lectura): %1. Materias omitidas de la sincronizacion (%2): %3")
+                    .arg(it.key())
+                    .arg(it.value().size())
+                    .arg(it.value().join(QStringLiteral(", "))));
     }
 
     if (m_syncOperationMode == SyncOperationMode::SyncAll) {
