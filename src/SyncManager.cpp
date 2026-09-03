@@ -1535,8 +1535,6 @@ void SyncManager::applyStagedDiffForScope()
         const QVector<PublicationSyncAction> pubActions = m_diffEngine.diffPublications(
             courseId, m_stagingManager, m_syncStateManager, allowArchivePub);
 
-        const QString semester = semesterForCourse(courseId);
-
         for (const PublicationSyncAction &action : pubActions) {
             if (action.type == SyncActionType::DeletedArchivedAssignment) {
                 m_syncStateManager.markPublicationArchivedDeleted(
@@ -1564,7 +1562,18 @@ void SyncManager::applyStagedDiffForScope()
                 continue;
             }
 
-            const QString pubFolder = m_folderOrganizer.createPublicationFolder(semester, course.name, *pub);
+            // Misma resolucion de carpeta que las tareas. Antes esta rama derivaba
+            // siempre del semestre e ignoraba la ruta registrada, de modo que al
+            // cambiar el semestre resuelto las tareas se quedaban en la carpeta
+            // vieja y las publicaciones se escribian en la nueva.
+            QString pubFolder = m_syncStateManager.publicationFolderPath(course.id, action.publicationId).trimmed();
+            if (!pubFolder.isEmpty()
+                && (!QFileInfo::exists(pubFolder) || !pathIsInsideBase(pubFolder, m_configManager.basePath()))) {
+                pubFolder.clear();
+            }
+            if (pubFolder.isEmpty()) {
+                pubFolder = m_folderOrganizer.createPublicationFolderIn(resolveCoursePath(course), *pub);
+            }
             if (pubFolder.isEmpty() || !QFileInfo::exists(pubFolder)) {
                 ++m_errorCount;
                 logErr(QStringLiteral("No se pudo preparar carpeta de publicacion: %1 / %2").arg(course.name, pub->title));
@@ -1749,6 +1758,26 @@ bool SyncManager::pathIsUnderArchivedSemester(const QString &path) const
     return false;
 }
 
+QString SyncManager::resolveCoursePath(const Course &course) const
+{
+    const QString semester = semesterForCourse(course.id);
+    const QString configuredBasePath = m_configManager.basePath().trimmed();
+    const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
+    const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
+
+    // Se conserva la carpeta ya registrada mientras siga siendo valida: mover una
+    // materia de sitio sola perderia el respaldo anterior.
+    if (!previousCoursePath.isEmpty()
+        && QFileInfo::exists(previousCoursePath)
+        && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
+        && pathIsInsideBase(previousCoursePath, configuredBasePath)
+        && !m_syncStateManager.assignmentIds(course.id).isEmpty()) {
+        return previousCoursePath;
+    }
+
+    return suggestedCoursePath;
+}
+
 bool SyncManager::ensureCourseAndAssignmentPaths(
     const Course &course,
     const Assignment &assignment,
@@ -1761,17 +1790,7 @@ bool SyncManager::ensureCourseAndAssignmentPaths(
 
     const QString semester = semesterForCourse(course.id);
     const QString configuredBasePath = m_configManager.basePath().trimmed();
-    const QString suggestedCoursePath = m_folderOrganizer.createCourseFolder(semester, course.name);
-    const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
-
-    *coursePath = suggestedCoursePath;
-    if (!previousCoursePath.isEmpty()
-        && QFileInfo::exists(previousCoursePath)
-        && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
-        && pathIsInsideBase(previousCoursePath, configuredBasePath)
-        && !m_syncStateManager.assignmentIds(course.id).isEmpty()) {
-        *coursePath = previousCoursePath;
-    }
+    *coursePath = resolveCoursePath(course);
 
     QString localAssignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id).trimmed();
     if (!localAssignmentPath.isEmpty() && !pathIsInsideBase(localAssignmentPath, configuredBasePath)) {
@@ -2289,7 +2308,7 @@ void SyncManager::syncFolders()
             }
 
             if (pubPath.isEmpty() || !QFileInfo::exists(pubPath)) {
-                pubPath = m_folderOrganizer.createPublicationFolder(semester, course.name, publication);
+                pubPath = m_folderOrganizer.createPublicationFolderIn(coursePath, publication);
                 if (pubPath.isEmpty() || !QFileInfo::exists(pubPath)) {
                     ++m_errorCount;
                     logErr(QStringLiteral("No se pudo crear carpeta de publicacion: %1 / %2").arg(course.name, publication.title));

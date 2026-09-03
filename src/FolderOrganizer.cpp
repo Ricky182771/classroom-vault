@@ -229,7 +229,15 @@ QString FolderOrganizer::createPublicationFolder(
     const QString &courseName,
     const Publication &publication) const
 {
-    const QString coursePath = createCourseFolder(semester, courseName);
+    return createPublicationFolderIn(createCourseFolder(semester, courseName), publication);
+}
+
+QString FolderOrganizer::createPublicationFolderIn(const QString &coursePath, const Publication &publication) const
+{
+    if (coursePath.trimmed().isEmpty()) {
+        return QString();
+    }
+
     const QString publicationsRoot = QDir(coursePath).filePath(QStringLiteral("_Publicaciones"));
     ensureDir(publicationsRoot);
     const QString folderName = buildPublicationFolderName(publication);

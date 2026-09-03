@@ -24,6 +24,11 @@ public:
     QString createCourseFolder(const QString &semester, const QString &courseName) const;
     QString createAssignmentFolder(const QString &semester, const QString &courseName, const Assignment &assignment) const;
     QString createPublicationFolder(const QString &semester, const QString &courseName, const Publication &publication) const;
+    // Variante que recibe la carpeta de la materia ya resuelta. Las tareas
+    // prefieren la ruta registrada en el indice cuando sigue dentro de la base;
+    // las publicaciones derivaban siempre del semestre, asi que una misma materia
+    // podia quedar partida entre dos semestres.
+    QString createPublicationFolderIn(const QString &coursePath, const Publication &publication) const;
 
     QString resolveFolderConflict(const QString &desiredPath, const QString &resourceId) const;
 

@@ -150,6 +150,9 @@ private:
     Assignment findStagedAssignment(const QString &courseId, const QString &assignmentId) const;
     QStringList archivedSemesterRoots() const;
     bool pathIsUnderArchivedSemester(const QString &path) const;
+    // Resolucion unica de la carpeta de una materia: tareas y publicaciones deben
+    // salir de aqui, o el mismo curso acaba repartido entre dos semestres.
+    QString resolveCoursePath(const Course &course) const;
     bool ensureCourseAndAssignmentPaths(
         const Course &course,
         const Assignment &assignment,
