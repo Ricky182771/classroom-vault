@@ -57,8 +57,13 @@ QJsonObject parseJsonFileObject(const QString &path)
     return doc.object();
 }
 
-QString courseStatusFromCounts(int totalTasks, int pending, int errors)
+QString courseStatusFromCounts(int totalTasks, int pending, int errors, bool archived)
 {
+    // Una materia archivada es un respaldo historico congelado, no un trabajo a
+    // medias: su estado no puede depender de cuantos ficheros siguen en disco.
+    if (archived) {
+        return QStringLiteral("archived");
+    }
     if (errors > 0) {
         return QStringLiteral("error");
     }
@@ -465,10 +470,24 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
     ui.archived = m_syncManager->isCourseArchived(course.id);
     ui.classroomUrl = course.alternateLink;
     ui.folderPath = m_syncManager->courseFolderPath(course.id);
+
+    // Que un artefacto registrado no este en disco solo es un error si podia
+    // estarlo: dentro de la base activa y en un semestre que todavia se
+    // sincroniza. Un indice que aun apunta a una base anterior o el respaldo
+    // congelado de un semestre archivado producian aqui un error por materia,
+    // por tarea y por adjunto (12 + 73 + 46 = los 131 "errores" reportados).
+    const auto noteMissing = [this, &ui](const QString &recordedPath) {
+        if (ui.archived || !m_syncManager->isPathInsideBasePath(recordedPath)) {
+            ++ui.missingLocal;
+        } else {
+            ++ui.errors;
+        }
+    };
+
     const bool courseFolderMissing =
         !ui.folderPath.trimmed().isEmpty() && !m_syncManager->localCourseFolderExists(course.id);
     if (courseFolderMissing) {
-        ++ui.errors;
+        noteMissing(ui.folderPath);
     }
 
     ui.totalTasks = list.size();
@@ -487,7 +506,7 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
             ++ui.backedUpTasks;
         }
         if (!folder.isEmpty() && !assignmentFolderExists) {
-            ++ui.errors;
+            noteMissing(folder);
         }
 
         const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignment.id);
@@ -500,7 +519,7 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
             const QJsonObject attachmentState = it.value().toObject();
             const QString localPath = attachmentState.value(QStringLiteral("localPath")).toString().trimmed();
             if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
-                ++ui.errors;
+                noteMissing(localPath);
             }
         }
 
@@ -526,8 +545,11 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
         if (assignmentFolderExists && metadataExists) {
             ++ui.backedUpTasks;
         }
-        if (!assignmentFolderExists) {
-            ++ui.errors;
+        // Simetrico con la rama de las tareas vivas: sin ruta registrada no hay
+        // nada que echar en falta.
+        const QString knownFolder = m_syncManager->assignmentFolderPath(course.id, assignmentId).trimmed();
+        if (!knownFolder.isEmpty() && !assignmentFolderExists) {
+            noteMissing(knownFolder);
         }
 
         const QJsonObject attachments = m_syncManager->assignmentAttachmentsState(course.id, assignmentId);
@@ -538,7 +560,7 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
             ++ui.attachments;
             const QString localPath = it.value().toObject().value(QStringLiteral("localPath")).toString().trimmed();
             if (!localPath.isEmpty() && !QFileInfo::exists(localPath)) {
-                ++ui.errors;
+                noteMissing(localPath);
             }
         }
 
@@ -554,7 +576,7 @@ CourseUiState MainWindow::buildCourseUiState(const Course &course, const QList<A
 
     ui.pending = qMax(0, ui.totalTasks - ui.backedUpTasks);
     ui.lastSync = newest.isValid() ? formatIsoDateTime(newest.toString(Qt::ISODate)) : QStringLiteral("—");
-    ui.status = courseStatusFromCounts(ui.totalTasks, ui.pending, ui.errors);
+    ui.status = courseStatusFromCounts(ui.totalTasks, ui.pending, ui.errors, ui.archived);
 
     return ui;
 }

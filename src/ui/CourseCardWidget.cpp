@@ -116,13 +116,16 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
     m_nameLabel->setText(course.name.isEmpty() ? QStringLiteral("Materia sin nombre") : course.name);
     m_codeLabel->setText(course.code.isEmpty() ? QStringLiteral("—") : course.code);
     m_semesterLabel->setText(QStringLiteral("Semestre: %1").arg(course.semester.isEmpty() ? QStringLiteral("Sin semestre") : course.semester));
-    m_statsLabel->setText(
-        QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5")
-            .arg(course.backedUpTasks)
-            .arg(course.totalTasks)
-            .arg(course.attachments)
-            .arg(course.pending)
-            .arg(course.errors));
+    QString stats = QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5")
+                        .arg(course.backedUpTasks)
+                        .arg(course.totalTasks)
+                        .arg(course.attachments)
+                        .arg(course.pending)
+                        .arg(course.errors);
+    if (course.missingLocal > 0) {
+        stats += QStringLiteral(" · Sin localizar %1").arg(course.missingLocal);
+    }
+    m_statsLabel->setText(stats);
 
     const int total = course.totalTasks <= 0 ? 1 : course.totalTasks;
     int progress = static_cast<int>((100.0 * static_cast<double>(course.backedUpTasks)) / static_cast<double>(total));
@@ -134,7 +137,15 @@ void CourseCardWidget::setCourse(const CourseUiState &course)
     }
 
     m_progress->setValue(progress);
-    m_progress->setFormat(QStringLiteral("%1% respaldado").arg(progress));
+    if (course.archived) {
+        // Un semestre archivado no se sincroniza: el porcentaje no mide progreso,
+        // asi que anunciar "0% respaldado" lo hacia parecer un respaldo fallido.
+        m_progress->setFormat(QStringLiteral("Archivado · solo lectura"));
+    } else if (course.missingLocal > 0 && course.errors == 0) {
+        m_progress->setFormat(QStringLiteral("%1% · respaldo no encontrado en la ruta base actual").arg(progress));
+    } else {
+        m_progress->setFormat(QStringLiteral("%1% respaldado").arg(progress));
+    }
 
     m_lastSyncLabel->setText(QStringLiteral("Ultima sync: %1").arg(course.lastSync.isEmpty() ? QStringLiteral("—") : course.lastSync));
 
@@ -190,6 +201,12 @@ void CourseCardWidget::applyStatusUi(const QString &status)
         badgeBg = QStringLiteral("rgba(230,194,106,0.16)");
         bannerA = QStringLiteral("#9A6E3A");
         bannerB = QStringLiteral("#5E4225");
+    } else if (status == QStringLiteral("archived")) {
+        badgeText = QStringLiteral("Archivado");
+        badgeColor = QStringLiteral("#9AA0AE");
+        badgeBg = QStringLiteral("rgba(154,160,174,0.18)");
+        bannerA = QStringLiteral("#4A5060");
+        bannerB = QStringLiteral("#2F3340");
     } else if (status == QStringLiteral("error")) {
         badgeText = QStringLiteral("Error");
         badgeColor = QStringLiteral("#E07C7C");

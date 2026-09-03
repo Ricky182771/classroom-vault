@@ -32,6 +32,12 @@ struct CourseUiState {
     int attachments = 0;
     int pending = 0;
     int errors = 0;
+
+    // Artefactos que el indice registra pero que no estan en disco por una razon
+    // que NO es un fallo: el respaldo congelado de un semestre archivado, o una
+    // ruta que quedo fuera de la base activa al cambiarla. Es un aviso, no un
+    // error, y no debe teñir la materia de rojo.
+    int missingLocal = 0;
 };
 
 // Agregado del conjunto de materias VISIBLE, es decir despues del filtro global
@@ -45,6 +51,7 @@ struct VaultStats {
     int attachments = 0;
     int pending = 0;
     int errors = 0;
+    int missingLocal = 0;
 };
 
 inline VaultStats aggregateCourseStats(const QVector<CourseUiState> &courses)
@@ -57,6 +64,7 @@ inline VaultStats aggregateCourseStats(const QVector<CourseUiState> &courses)
         stats.attachments += course.attachments;
         stats.pending += course.pending;
         stats.errors += course.errors;
+        stats.missingLocal += course.missingLocal;
     }
     return stats;
 }

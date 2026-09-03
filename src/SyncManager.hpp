@@ -34,6 +34,10 @@ public:
 
     QString basePath() const;
     void setBasePath(const QString &basePath);
+    // Una ruta registrada puede haber quedado fuera de la base activa (por
+    // ejemplo un disco externo que ya no se usa). Que no exista ahi no es un
+    // fallo de respaldo, asi que la UI necesita poder distinguirlo.
+    bool isPathInsideBasePath(const QString &path) const;
 
     QString semesterForCourse(const QString &courseId) const;
     void setSemesterForCourse(const QString &courseId, const QString &semester);

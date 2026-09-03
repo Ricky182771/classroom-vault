@@ -145,6 +145,11 @@ void SyncManager::setBasePath(const QString &basePath)
     logInfo(QStringLiteral("Actualizando servicios con nueva ruta base..."));
 }
 
+bool SyncManager::isPathInsideBasePath(const QString &path) const
+{
+    return pathIsInsideBase(path, m_configManager.basePath());
+}
+
 QString SyncManager::semesterForCourse(const QString &courseId) const
 {
     const QString semester = m_semesterByCourse.value(courseId).trimmed();

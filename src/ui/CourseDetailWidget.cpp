@@ -274,14 +274,18 @@ void CourseDetailWidget::setSearchText(const QString &text)
 void CourseDetailWidget::updateSummaryLabel()
 {
     if (m_currentSection == CourseSection::Tasks) {
-        m_summaryLabel->setText(
-            QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5 · Ultima sync %6")
-                .arg(m_course.backedUpTasks)
-                .arg(m_course.totalTasks)
-                .arg(m_course.attachments)
-                .arg(m_course.pending)
-                .arg(m_course.errors)
-                .arg(m_course.lastSync.trimmed().isEmpty() ? QStringLiteral("—") : m_course.lastSync.trimmed()));
+        QString summary = QStringLiteral("Tareas %1/%2 · Adjuntos %3 · Pendientes %4 · Errores %5")
+                              .arg(m_course.backedUpTasks)
+                              .arg(m_course.totalTasks)
+                              .arg(m_course.attachments)
+                              .arg(m_course.pending)
+                              .arg(m_course.errors);
+        if (m_course.missingLocal > 0) {
+            summary += QStringLiteral(" · Sin localizar %1").arg(m_course.missingLocal);
+        }
+        summary += QStringLiteral(" · Ultima sync %1")
+                       .arg(m_course.lastSync.trimmed().isEmpty() ? QStringLiteral("—") : m_course.lastSync.trimmed());
+        m_summaryLabel->setText(summary);
     } else {
         m_summaryLabel->setText(
             QStringLiteral("Publicaciones: %1 · Ultima sync %2")
