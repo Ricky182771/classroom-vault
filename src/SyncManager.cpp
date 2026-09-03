@@ -347,6 +347,57 @@ bool SyncManager::archiveSemester(const QString &semester)
     return true;
 }
 
+QList<Course> SyncManager::coursesTrappedInArchivedSemester() const
+{
+    QList<Course> trapped;
+    for (const Course &course : m_courses) {
+        if (!m_remoteCourseIds.contains(course.id)) {
+            // Solo esta en local: su respaldo archivado es correcto, no es un conflicto.
+            continue;
+        }
+        if (isCourseArchived(course.id)) {
+            trapped.append(course);
+        }
+    }
+    return trapped;
+}
+
+int SyncManager::releaseCoursesFromArchivedSemester(const QString &targetSemester)
+{
+    const QString target = targetSemester.trimmed();
+    if (target.isEmpty() || Semester::isSentinel(target) || isSemesterArchived(target)) {
+        logErr(QStringLiteral("Destino invalido para rescatar materias: %1").arg(target));
+        return 0;
+    }
+
+    const QList<Course> trapped = coursesTrappedInArchivedSemester();
+    if (trapped.isEmpty()) {
+        return 0;
+    }
+
+    QStringList moved;
+    for (const Course &course : trapped) {
+        m_semesterByCourse.insert(course.id, target);
+        m_configManager.setSemesterForCourse(course.id, target);
+        moved.append(course.name.trimmed().isEmpty() ? course.id : course.name);
+    }
+
+    if (!m_configManager.save()) {
+        ++m_errorCount;
+        logErr(QStringLiteral("No se pudo guardar config.json. Las materias NO quedaron rescatadas."));
+        emitCounters();
+        return 0;
+    }
+
+    logInfo(QStringLiteral("%1 materias devueltas a %2: %3")
+                .arg(moved.size())
+                .arg(target)
+                .arg(moved.join(QStringLiteral(", "))));
+    emit coursesChanged(m_courses);
+    emit syncStateChanged();
+    return moved.size();
+}
+
 bool SyncManager::unarchiveSemester(const QString &semester)
 {
     const QString clean = semester.trimmed();
@@ -1087,6 +1138,11 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
 {
     m_courses = courses;
 
+    m_remoteCourseIds.clear();
+    for (const Course &course : courses) {
+        m_remoteCourseIds.insert(course.id);
+    }
+
     bool migratedLegacy = false;
     for (const Course &course : m_courses) {
         if (m_semesterByCourse.contains(course.id)) {
@@ -1144,6 +1200,22 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
                     .arg(it.key())
                     .arg(it.value().size())
                     .arg(it.value().join(QStringLiteral(", "))));
+    }
+
+    // Omitir una materia archivada es correcto. Omitir una que Classroom acaba de
+    // devolver no lo es: es una materia viva cuyo mapeo quedo obsoleto, y callarlo
+    // la deja fuera de todos los syncs futuros sin que nada lo delate.
+    const QList<Course> trapped = coursesTrappedInArchivedSemester();
+    if (!trapped.isEmpty()) {
+        QStringList names;
+        for (const Course &course : trapped) {
+            names.append(course.name.trimmed().isEmpty() ? course.id : course.name);
+        }
+        logErr(QStringLiteral("%1 materias siguen activas en Classroom pero su semestre esta archivado, "
+                              "asi que ningun sync las respalda: %2. Usa \"Rescatar materias\" para moverlas "
+                              "al semestre de destino.")
+                   .arg(trapped.size())
+                   .arg(names.join(QStringLiteral(", "))));
     }
 
     if (m_syncOperationMode == SyncOperationMode::SyncAll) {
@@ -1446,13 +1518,14 @@ void SyncManager::applyStagedDiffForScope()
                 continue;
             }
 
-            if (pathIsUnderArchivedSemester(m_syncStateManager.assignmentFolderPath(courseId, action.assignmentId))
-                || pathIsUnderArchivedSemester(m_syncStateManager.courseFolderPath(courseId))) {
-                logArch(QStringLiteral("Ruta dentro de un semestre archivado. Se omite escritura: %1 / %2")
-                            .arg(course.name, assignment.title));
-                continue;
-            }
-
+            // Aqui NO se comprueba la ruta registrada. Una materia que llega a este
+            // punto resuelve a un semestre activo (las archivadas no entran al
+            // alcance), asi que una ruta registrada dentro del arbol archivado solo
+            // significa que la materia cambio de semestre: hay que dejar de reusarla,
+            // no saltarse la materia. Saltarla dejaba sin respaldo, para siempre y en
+            // silencio, a las materias devueltas a un semestre activo.
+            // ensureCourseAndAssignmentPaths ignora las rutas archivadas al resolver y
+            // aborta si el destino resultante cayera dentro del arbol archivado.
             QString assignmentPath;
             if (!ensureCourseAndAssignmentPaths(course, assignment, &coursePath, &assignmentPath)) {
                 ++m_errorCount;
@@ -1556,19 +1629,15 @@ void SyncManager::applyStagedDiffForScope()
                 continue;
             }
 
-            if (pathIsUnderArchivedSemester(m_syncStateManager.publicationFolderPath(course.id, action.publicationId))) {
-                logArch(QStringLiteral("Publicacion dentro de un semestre archivado. Se omite: %1 / %2")
-                            .arg(course.name, pub->title));
-                continue;
-            }
-
             // Misma resolucion de carpeta que las tareas. Antes esta rama derivaba
             // siempre del semestre e ignoraba la ruta registrada, de modo que al
             // cambiar el semestre resuelto las tareas se quedaban en la carpeta
             // vieja y las publicaciones se escribian en la nueva.
             QString pubFolder = m_syncStateManager.publicationFolderPath(course.id, action.publicationId).trimmed();
             if (!pubFolder.isEmpty()
-                && (!QFileInfo::exists(pubFolder) || !pathIsInsideBase(pubFolder, m_configManager.basePath()))) {
+                && (!QFileInfo::exists(pubFolder)
+                    || !pathIsInsideBase(pubFolder, m_configManager.basePath())
+                    || pathIsUnderArchivedSemester(pubFolder))) {
                 pubFolder.clear();
             }
             if (pubFolder.isEmpty()) {
@@ -1766,11 +1835,15 @@ QString SyncManager::resolveCoursePath(const Course &course) const
     const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
 
     // Se conserva la carpeta ya registrada mientras siga siendo valida: mover una
-    // materia de sitio sola perderia el respaldo anterior.
+    // materia de sitio sola perderia el respaldo anterior. Pero NUNCA si esa
+    // carpeta cuelga de un semestre archivado: ese arbol es de solo lectura, asi
+    // que reusarlo mandaba la escritura a un sitio donde el guard la aborta y la
+    // materia se quedaba sin respaldar en su semestre nuevo.
     if (!previousCoursePath.isEmpty()
         && QFileInfo::exists(previousCoursePath)
         && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
         && pathIsInsideBase(previousCoursePath, configuredBasePath)
+        && !pathIsUnderArchivedSemester(previousCoursePath)
         && !m_syncStateManager.assignmentIds(course.id).isEmpty()) {
         return previousCoursePath;
     }
@@ -1793,7 +1866,11 @@ bool SyncManager::ensureCourseAndAssignmentPaths(
     *coursePath = resolveCoursePath(course);
 
     QString localAssignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id).trimmed();
-    if (!localAssignmentPath.isEmpty() && !pathIsInsideBase(localAssignmentPath, configuredBasePath)) {
+    if (!localAssignmentPath.isEmpty()
+        && (!pathIsInsideBase(localAssignmentPath, configuredBasePath)
+            || pathIsUnderArchivedSemester(localAssignmentPath))) {
+        // Misma razon que arriba: la carpeta registrada puede haber quedado dentro
+        // del arbol archivado tras devolver la materia a un semestre activo.
         localAssignmentPath.clear();
     }
     if (localAssignmentPath.isEmpty() || !QFileInfo::exists(localAssignmentPath)) {
@@ -2163,15 +2240,11 @@ void SyncManager::syncFolders()
 
         const QString previousCoursePath = m_syncStateManager.courseFolderPath(course.id).trimmed();
 
-        // Red de seguridad a nivel de ruta. Una materia puede dejar de resolverse como
-        // archivada (p. ej. cambio el semestre por defecto o su mapeo) mientras su
-        // carpeta sigue dentro del arbol archivado. Se comprueba antes de crear nada.
-        if (pathIsUnderArchivedSemester(previousCoursePath)) {
-            current += m_assignmentsByCourse.value(course.id).size();
-            emit syncProgress(current, total);
-            skippedBySemester[QStringLiteral("%1 (por ruta)").arg(semester)].append(course.name);
-            continue;
-        }
+        // Si la carpeta registrada cuelga del arbol archivado es que la materia
+        // cambio de semestre: se deja de reusar, pero la materia SI se procesa. Antes
+        // se saltaba entera, de modo que una materia devuelta a un semestre activo no
+        // volvia a respaldarse nunca.
+        const bool previousPathIsArchived = pathIsUnderArchivedSemester(previousCoursePath);
 
         ++processedCourses;
 
@@ -2179,6 +2252,7 @@ void SyncManager::syncFolders()
 
         QString coursePath = suggestedCoursePath;
         if (!previousCoursePath.isEmpty()
+            && !previousPathIsArchived
             && QFileInfo::exists(previousCoursePath)
             && QDir::cleanPath(previousCoursePath) != QDir::cleanPath(suggestedCoursePath)
             && pathIsInsideBase(previousCoursePath, configuredBasePath)
@@ -2205,12 +2279,11 @@ void SyncManager::syncFolders()
 
             const bool knownAssignment = m_syncStateManager.hasAssignment(course.id, assignment.id);
             QString assignmentPath = m_syncStateManager.assignmentFolderPath(course.id, assignment.id);
-            if (pathIsUnderArchivedSemester(assignmentPath)) {
-                logArch(QStringLiteral("Tarea dentro de un semestre archivado. Se omite escritura: %1 / %2")
-                            .arg(course.name, Utils::effectiveAssignmentTitle(assignment)));
-                continue;
-            }
-            if (!assignmentPath.trimmed().isEmpty() && !pathIsInsideBase(assignmentPath, configuredBasePath)) {
+            // Ruta registrada dentro del arbol archivado: se descarta para que se cree
+            // una nueva bajo la carpeta actual de la materia, no se salta la tarea.
+            if (!assignmentPath.trimmed().isEmpty()
+                && (pathIsUnderArchivedSemester(assignmentPath)
+                    || !pathIsInsideBase(assignmentPath, configuredBasePath))) {
                 assignmentPath.clear();
             }
 
@@ -2297,14 +2370,11 @@ void SyncManager::syncFolders()
         const QList<Publication> publications = m_publicationsByCourse.value(course.id);
         for (const Publication &publication : publications) {
             QString pubPath = m_syncStateManager.publicationFolderPath(course.id, publication.id).trimmed();
-            // La carpeta de una publicacion puede divergir de la de su materia (la materia
-            // se remapea de semestre y la publicacion se queda atras). Se comprueba aparte.
-            if (pathIsUnderArchivedSemester(pubPath)) {
-                logArch(QStringLiteral("Publicacion dentro de un semestre archivado. Se omite escritura: %1 / %2")
-                            .arg(course.name, publication.title));
-                continue;
-            }
-            if (!pubPath.isEmpty() && !pathIsInsideBase(pubPath, configuredBasePath)) {
+            // La carpeta de una publicacion puede divergir de la de su materia (la
+            // materia se remapea de semestre y la publicacion se queda atras). Si quedo
+            // dentro del arbol archivado se descarta y se recrea bajo la carpeta actual.
+            if (!pubPath.isEmpty()
+                && (pathIsUnderArchivedSemester(pubPath) || !pathIsInsideBase(pubPath, configuredBasePath))) {
                 pubPath.clear();
             }
 

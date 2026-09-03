@@ -91,6 +91,7 @@ private slots:
     void onTargetSemesterChanged(const QString &semester);
     void onArchiveSemesterRequested(const QString &semester);
     void onUnarchiveSemesterRequested(const QString &semester);
+    void onReleaseTrappedCoursesRequested();
     void onSemesterArchivedChanged(const QString &semester);
 
     void appendLog(const QString &message);

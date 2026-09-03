@@ -51,6 +51,16 @@ public:
     QStringList archivedSemesters() const;
     bool archiveSemester(const QString &semester);
     bool unarchiveSemester(const QString &semester);
+
+    // Materias que Classroom SIGUE devolviendo pero cuyo mapeo apunta a un
+    // semestre archivado. Son materias vivas atrapadas por metadatos obsoletos:
+    // el guard de archivado las excluye de cada sync, para siempre y en silencio.
+    // Pasa cuando la institucion reutiliza el mismo curso de Classroom y solo lo
+    // renombra al empezar un ciclo nuevo.
+    QList<Course> coursesTrappedInArchivedSemester() const;
+    // Las devuelve al semestre activo indicado. Deja intacto el respaldo que ya
+    // tienen bajo el arbol archivado: a partir de aqui escriben en el nuevo.
+    int releaseCoursesFromArchivedSemester(const QString &targetSemester);
     QString ensureSemesterFolderExists(const QString &semester);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
@@ -188,6 +198,10 @@ private:
     QHash<QString, QList<Assignment>> m_assignmentsByCourse;
     QHash<QString, QList<Publication>> m_publicationsByCourse;
     QHash<QString, QString> m_semesterByCourse;
+    // Ids que vinieron de la ultima respuesta de Classroom, antes de reinyectar
+    // las materias archivadas que solo existen en local. Sin esta distincion no
+    // se puede saber que materias siguen vivas.
+    QSet<QString> m_remoteCourseIds;
 
     int m_pendingCourseWorkRequests = 0;
     int m_pendingPublicationFetchRequests = 0;
