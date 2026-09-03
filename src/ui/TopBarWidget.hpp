@@ -26,6 +26,10 @@ public:
     void setGlobalSemesterFilter(const QString &semester);
     QString globalSemesterFilter() const;
     void setSemesterArchived(bool archived);
+    // Destino de escritura de las materias nuevas. Es una decision del modelo de
+    // datos y por eso tiene control propio: antes se derivaba del combo de filtro,
+    // de modo que mirar un semestre reasignaba las materias sin mapeo explicito.
+    void setTargetSemesterOptions(const QStringList &semesters, const QString &current);
 
 signals:
     void syncRequested();
@@ -34,6 +38,7 @@ signals:
     void searchTextChanged(const QString &text);
     void globalSemesterFilterChanged(const QString &semester);
     void archiveSemesterRequested(const QString &semester);
+    void targetSemesterChanged(const QString &semester);
 
 private:
     static bool isArchivableSemester(const QString &semester);
@@ -44,6 +49,7 @@ private:
     QLabel *m_connectionLabel = nullptr;
     QLabel *m_emailLabel = nullptr;
     QComboBox *m_semesterCombo = nullptr;
+    QComboBox *m_targetSemesterCombo = nullptr;
     QPushButton *m_syncButton = nullptr;
     QPushButton *m_accountButton = nullptr;
     QPushButton *m_archiveButton = nullptr;

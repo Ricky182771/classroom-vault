@@ -37,6 +37,16 @@ TopBarWidget::TopBarWidget(QWidget *parent)
     m_semesterCombo->addItem(QStringLiteral("Sin semestre"));
     layout->addWidget(m_semesterCombo);
 
+    auto *targetLabel = new QLabel(QStringLiteral("Materias nuevas \u2192"), this);
+    targetLabel->setProperty("subtle", true);
+    targetLabel->setToolTip(QStringLiteral("Semestre en el que se guardaran las materias que aun no tienen uno asignado."));
+    layout->addWidget(targetLabel);
+
+    m_targetSemesterCombo = new QComboBox(this);
+    m_targetSemesterCombo->setMinimumWidth(140);
+    m_targetSemesterCombo->setToolTip(targetLabel->toolTip());
+    layout->addWidget(m_targetSemesterCombo);
+
     m_archivedLockLabel = new QLabel(QStringLiteral("\U0001F512 Archivado"), this);
     m_archivedLockLabel->setToolTip(QStringLiteral("Semestre archivado: solo lectura"));
     m_archivedLockLabel->setStyleSheet(
@@ -97,6 +107,9 @@ TopBarWidget::TopBarWidget(QWidget *parent)
         m_semesterArchived = false;
         updateArchiveControls();
         emit globalSemesterFilterChanged(text.trimmed());
+    });
+    connect(m_targetSemesterCombo, &QComboBox::activated, this, [this](int) {
+        emit targetSemesterChanged(m_targetSemesterCombo->currentText().trimmed());
     });
     connect(m_archiveButton, &QPushButton::clicked, this, [this]() {
         const QString semester = m_semesterCombo->currentText().trimmed();
@@ -221,8 +234,28 @@ void TopBarWidget::setGlobalSemesterFilter(const QString &semester)
         return;
     }
 
+    // Setter programatico: no puede confundirse con una interaccion del usuario,
+    // o MainWindow reentra en onGlobalSemesterFilterChanged y persiste config.
+    m_semesterCombo->blockSignals(true);
     m_semesterCombo->setCurrentIndex(idx);
+    m_semesterCombo->blockSignals(false);
     updateArchiveControls();
+}
+
+void TopBarWidget::setTargetSemesterOptions(const QStringList &semesters, const QString &current)
+{
+    const QString clean = current.trimmed();
+    QStringList items = semesters;
+    if (!clean.isEmpty() && !items.contains(clean)) {
+        items.prepend(clean);
+    }
+
+    m_targetSemesterCombo->blockSignals(true);
+    m_targetSemesterCombo->clear();
+    m_targetSemesterCombo->addItems(items);
+    const int idx = m_targetSemesterCombo->findText(clean);
+    m_targetSemesterCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    m_targetSemesterCombo->blockSignals(false);
 }
 
 QString TopBarWidget::globalSemesterFilter() const

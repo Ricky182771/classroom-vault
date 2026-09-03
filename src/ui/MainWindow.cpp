@@ -163,6 +163,7 @@ void MainWindow::connectSignals()
     connect(m_topBar, &TopBarWidget::accountRequested, this, &MainWindow::onTopBarAccountRequested);
     connect(m_topBar, &TopBarWidget::globalSemesterFilterChanged, this, &MainWindow::onGlobalSemesterFilterChanged);
     connect(m_topBar, &TopBarWidget::archiveSemesterRequested, this, &MainWindow::onArchiveSemesterRequested);
+    connect(m_topBar, &TopBarWidget::targetSemesterChanged, this, &MainWindow::onTargetSemesterChanged);
 
     connect(m_pathBar, &PathBarWidget::changeBasePathRequested, this, &MainWindow::onBrowseBasePath);
     connect(m_pathBar, &PathBarWidget::openBasePathRequested, this, &MainWindow::onOpenBaseFolder);
@@ -1503,26 +1504,17 @@ void MainWindow::onTopBarSearchChanged(const QString &text)
 
 void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
 {
+    // Este control SOLO filtra la vista. Antes tambien escribia defaultSemester y
+    // creaba la carpeta del semestre, asi que mirar un semestre decidia donde
+    // aterrizaban en disco las materias sin mapeo explicito en el siguiente sync.
+    // El destino de escritura vive ahora en su propio control (ver
+    // onTargetSemesterChanged).
     const QString clean = semester.trimmed().isEmpty() ? QStringLiteral("Todos los semestres") : semester.trimmed();
     m_globalSemesterFilter = clean;
     m_syncManager->setGlobalSemesterFilter(clean);
 
-    const bool archived = m_syncManager->isSemesterArchived(clean);
-
-    if (clean == QStringLiteral("Todos los semestres")) {
-        m_syncManager->setDefaultSemester(QString());
-    } else if (archived) {
-        // Semestre archivado: se puede seguir filtrando y navegando, pero la UI no
-        // debe provocar ninguna escritura (ni carpeta de semestre ni semestre por
-        // defecto), porque ensureSemesterFolderExists no comprueba el archivado.
-        appendLog(
-            QStringLiteral("[ARCH] Semestre %1 archivado: vista de solo lectura, no se crean carpetas.").arg(clean));
-    } else {
-        m_syncManager->setDefaultSemester(clean == QStringLiteral("Sin semestre") ? QStringLiteral("Sin semestre") : clean);
-        const QString folder = m_syncManager->ensureSemesterFolderExists(clean);
-        if (!folder.trimmed().isEmpty()) {
-            appendLog(QStringLiteral("INFO  Carpeta de semestre lista: %1").arg(folder));
-        }
+    if (m_syncManager->isSemesterArchived(clean)) {
+        appendLog(QStringLiteral("[ARCH] Semestre %1 archivado: vista de solo lectura.").arg(clean));
     }
 
     refreshArchiveUi();
@@ -1533,6 +1525,33 @@ void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
     if (m_currentPage == ViewPage::AssignmentDetail) {
         refreshAssignmentUi();
     }
+}
+
+void MainWindow::onTargetSemesterChanged(const QString &semester)
+{
+    const QString clean = semester.trimmed();
+    if (clean.isEmpty() || clean == m_syncManager->defaultSemester().trimmed()) {
+        return;
+    }
+
+    if (m_syncManager->isSemesterArchived(clean)) {
+        // SyncManager::setDefaultSemester ya lo rechaza; se informa aqui para que el
+        // usuario no crea que el cambio se aplico.
+        appendError(QStringLiteral("El semestre %1 esta archivado y no puede recibir materias nuevas.").arg(clean));
+        refreshArchiveUi();
+        return;
+    }
+
+    m_syncManager->setDefaultSemester(clean);
+    const QString folder = m_syncManager->ensureSemesterFolderExists(clean);
+    if (!folder.trimmed().isEmpty()) {
+        appendLog(QStringLiteral("INFO  Semestre destino de materias nuevas: %1 · carpeta lista: %2").arg(clean, folder));
+    } else {
+        appendLog(QStringLiteral("INFO  Semestre destino de materias nuevas: %1").arg(clean));
+    }
+
+    refreshArchiveUi();
+    refreshHomeUi();
 }
 
 void MainWindow::onArchiveSemesterRequested(const QString &semester)
@@ -1846,9 +1865,25 @@ void MainWindow::refreshAssignmentUi()
     m_assignmentDetail->setPreviewData(buildAssignmentPreview(m_currentCourseId, m_currentAssignmentId));
 }
 
+QStringList MainWindow::activeSemesters() const
+{
+    QStringList result;
+    const QStringList all = knownSemesters();
+    for (const QString &semester : all) {
+        if (semester == QStringLiteral("Todos los semestres")
+            || semester == QStringLiteral("Sin semestre")
+            || m_syncManager->isSemesterArchived(semester)) {
+            continue;
+        }
+        result.append(semester);
+    }
+    return result;
+}
+
 void MainWindow::refreshArchiveUi()
 {
     m_topBar->setAvailableSemesters(knownSemesters());
+    m_topBar->setTargetSemesterOptions(activeSemesters(), m_syncManager->defaultSemester());
 
     const QString semester = m_globalSemesterFilter.trimmed();
     const bool archivable = !semester.isEmpty()
