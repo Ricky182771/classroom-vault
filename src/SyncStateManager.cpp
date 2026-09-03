@@ -3,6 +3,7 @@
 #include "Utils.hpp"
 
 #include <QDir>
+#include <QHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -449,6 +450,210 @@ void SyncStateManager::updateAssignmentChecksumState(
     courseEntry.insert(QStringLiteral("assignments"), assignments);
     courses.insert(courseId, courseEntry);
     m_root.insert(QStringLiteral("courses"), courses);
+}
+
+int PathRebasePlan::toMigrate() const
+{
+    int count = 0;
+    for (const PathRebaseEntry &entry : entries) {
+        if (!entry.alreadyMigrated) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+int PathRebasePlan::alreadyMigrated() const
+{
+    return static_cast<int>(entries.size()) - toMigrate();
+}
+
+int PathRebasePlan::missingAfterMigration() const
+{
+    int count = 0;
+    for (const PathRebaseEntry &entry : entries) {
+        if (!entry.existsAtNewPath) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+namespace {
+
+QString cleanBase(const QString &base)
+{
+    QString clean = QDir::cleanPath(base.trimmed());
+    while (clean.endsWith(QLatin1Char('/')) && clean.size() > 1) {
+        clean.chop(1);
+    }
+    return clean;
+}
+
+bool pathHasBase(const QString &path, const QString &base)
+{
+    if (path.isEmpty() || base.isEmpty()) {
+        return false;
+    }
+    const QString cleanPath = QDir::cleanPath(path);
+    return cleanPath == base || cleanPath.startsWith(base + QLatin1Char('/'));
+}
+
+QString rebasedPath(const QString &path, const QString &oldBase, const QString &newBase)
+{
+    const QString cleanPath = QDir::cleanPath(path);
+    if (cleanPath == oldBase) {
+        return newBase;
+    }
+    return newBase + cleanPath.mid(oldBase.size());
+}
+
+} // namespace
+
+QString SyncStateManager::detectPreviousBasePath(const QString &currentBase) const
+{
+    // Toda ruta la construye FolderOrganizer como <base>/Tareas/<semestre>/...,
+    // asi que la base anterior es lo que precede a ese "/Tareas/".
+    static const QString marker = QStringLiteral("/Tareas/");
+    const QString base = cleanBase(currentBase);
+
+    QHash<QString, int> candidates;
+    const QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    for (auto it = courses.begin(); it != courses.end(); ++it) {
+        const QString folderPath = QDir::cleanPath(
+            it.value().toObject().value(QStringLiteral("folderPath")).toString().trimmed());
+        if (folderPath.isEmpty() || pathHasBase(folderPath, base)) {
+            continue;
+        }
+
+        const int markerIndex = folderPath.indexOf(marker);
+        if (markerIndex <= 0) {
+            continue;
+        }
+
+        ++candidates[folderPath.left(markerIndex)];
+    }
+
+    // Puede haber restos de varias bases (pruebas en /tmp, por ejemplo). Se elige
+    // la mayoritaria; en empate no se adivina y el usuario debe indicarla.
+    QString detected;
+    int best = 0;
+    bool tied = false;
+    for (auto it = candidates.constBegin(); it != candidates.constEnd(); ++it) {
+        if (it.value() > best) {
+            best = it.value();
+            detected = it.key();
+            tied = false;
+        } else if (it.value() == best) {
+            tied = true;
+        }
+    }
+
+    return tied ? QString() : detected;
+}
+
+PathRebasePlan SyncStateManager::rebasePaths(const QString &oldBase, const QString &newBase, bool apply)
+{
+    PathRebasePlan plan;
+    plan.oldBase = cleanBase(oldBase);
+    plan.newBase = cleanBase(newBase);
+    if (plan.oldBase.isEmpty() || plan.newBase.isEmpty() || plan.oldBase == plan.newBase) {
+        return plan;
+    }
+
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+
+    const auto rebaseField = [&plan](QJsonObject &object,
+                                     const QString &field,
+                                     const QString &courseId,
+                                     const QString &context) {
+        const QString current = object.value(field).toString().trimmed();
+        if (current.isEmpty()) {
+            return;
+        }
+
+        PathRebaseEntry entry;
+        entry.courseId = courseId;
+        entry.context = context;
+        entry.field = field;
+        entry.oldPath = current;
+
+        if (pathHasBase(current, plan.newBase)) {
+            // Idempotencia: ya migrada, se deja tal cual.
+            entry.alreadyMigrated = true;
+            entry.newPath = QDir::cleanPath(current);
+        } else if (pathHasBase(current, plan.oldBase)) {
+            entry.newPath = rebasedPath(current, plan.oldBase, plan.newBase);
+        } else {
+            // Ruta ajena a ambas bases: no se toca ni se reporta.
+            return;
+        }
+
+        entry.existsAtNewPath = QFileInfo::exists(entry.newPath);
+        plan.entries.append(entry);
+        object.insert(field, entry.newPath);
+    };
+
+    for (auto courseIt = courses.begin(); courseIt != courses.end(); ++courseIt) {
+        const QString courseId = courseIt.key();
+        QJsonObject course = courseIt.value().toObject();
+        const QString courseName = course.value(QStringLiteral("name")).toString();
+
+        rebaseField(course, QStringLiteral("folderPath"), courseId, courseName);
+
+        QJsonObject assignments = course.value(QStringLiteral("assignments")).toObject();
+        for (auto assignmentIt = assignments.begin(); assignmentIt != assignments.end(); ++assignmentIt) {
+            QJsonObject assignment = assignmentIt.value().toObject();
+            const QString title = assignment.value(QStringLiteral("title")).toString();
+            const QString context = QStringLiteral("%1 / %2").arg(courseName, title.isEmpty() ? assignmentIt.key() : title);
+
+            rebaseField(assignment, QStringLiteral("folderPath"), courseId, context);
+            rebaseField(assignment, QStringLiteral("metadataPath"), courseId, context);
+
+            QJsonObject attachments = assignment.value(QStringLiteral("attachments")).toObject();
+            for (auto attachmentIt = attachments.begin(); attachmentIt != attachments.end(); ++attachmentIt) {
+                QJsonObject attachment = attachmentIt.value().toObject();
+                const QString fileName = attachment.value(QStringLiteral("localFileName")).toString();
+                rebaseField(attachment,
+                            QStringLiteral("localPath"),
+                            courseId,
+                            QStringLiteral("%1 / %2").arg(context, fileName.isEmpty() ? attachmentIt.key() : fileName));
+                attachments.insert(attachmentIt.key(), attachment);
+            }
+            if (!attachments.isEmpty()) {
+                assignment.insert(QStringLiteral("attachments"), attachments);
+            }
+
+            assignments.insert(assignmentIt.key(), assignment);
+        }
+        if (!assignments.isEmpty()) {
+            course.insert(QStringLiteral("assignments"), assignments);
+        }
+
+        QJsonObject publications = course.value(QStringLiteral("publications")).toObject();
+        for (auto publicationIt = publications.begin(); publicationIt != publications.end(); ++publicationIt) {
+            QJsonObject publication = publicationIt.value().toObject();
+            const QString title = publication.value(QStringLiteral("title")).toString();
+            const QString context = QStringLiteral("%1 / %2").arg(courseName, title.isEmpty() ? publicationIt.key() : title);
+
+            rebaseField(publication, QStringLiteral("folderPath"), courseId, context);
+            rebaseField(publication, QStringLiteral("metadataPath"), courseId, context);
+
+            publications.insert(publicationIt.key(), publication);
+        }
+        if (!publications.isEmpty()) {
+            course.insert(QStringLiteral("publications"), publications);
+        }
+
+        courses.insert(courseId, course);
+    }
+
+    // Todo lo anterior se calcula sobre copias: sin apply, m_root queda intacto.
+    if (apply) {
+        m_root.insert(QStringLiteral("courses"), courses);
+    }
+
+    return plan;
 }
 
 QString SyncStateManager::lastSync() const
