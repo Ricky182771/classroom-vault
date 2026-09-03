@@ -1012,6 +1012,17 @@ void SyncManager::startSyncAllInternal()
 
 void SyncManager::startSyncCourseInternal(const QString &courseId)
 {
+    // El guard central de alcance vive en onCoursesFetched, que solo corre en
+    // SyncAll: aqui el alcance se fija a mano, asi que una materia archivada
+    // entraba igualmente y solo la frenaban los guards de ruta, poco fiables
+    // cuando el indice apunta a una base anterior.
+    if (isCourseArchived(courseId)) {
+        logArch(QStringLiteral("Semestre archivado (solo lectura): %1. No se sincroniza la materia %2.")
+                    .arg(semesterForCourse(courseId), courseId));
+        emit syncFinished(0, 0, 0, 0);
+        return;
+    }
+
     m_checksumRepairAttempts.clear();
     m_newCount = 0;
     m_updatedCount = 0;
