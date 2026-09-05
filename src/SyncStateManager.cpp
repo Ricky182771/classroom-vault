@@ -195,6 +195,19 @@ void SyncStateManager::setCourseStateRaw(const QString &courseId, const QJsonObj
     m_root.insert(QStringLiteral("courses"), courses);
 }
 
+bool SyncStateManager::removeCourse(const QString &courseId)
+{
+    const QString cleanCourseId = courseId.trimmed();
+    QJsonObject courses = m_root.value(QStringLiteral("courses")).toObject();
+    if (!courses.contains(cleanCourseId)) {
+        return false;
+    }
+
+    courses.remove(cleanCourseId);
+    m_root.insert(QStringLiteral("courses"), courses);
+    return true;
+}
+
 QString SyncStateManager::courseFolderPath(const QString &courseId) const
 {
     return courseObject(courseId).value(QStringLiteral("folderPath")).toString();

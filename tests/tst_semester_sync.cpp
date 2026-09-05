@@ -29,9 +29,13 @@ namespace {
 
 constexpr int kCourseCount = 12;
 
+// Numerico a proposito, como los ids reales de Classroom: ConfigManager trata una
+// clave no numerica de courseSemesters como configuracion legacy por NOMBRE, asi que
+// con ids de fantasia el mapeo no sobrevivia a una recarga y una prueba que reinicia
+// el manager no probaba lo que creia.
 QString courseId(int index)
 {
-    return QStringLiteral("curso-%1").arg(index, 2, 10, QLatin1Char('0'));
+    return QStringLiteral("7000000%1").arg(index, 2, 10, QLatin1Char('0'));
 }
 
 QString courseName(int index)
@@ -116,6 +120,10 @@ private slots:
     void countersAlwaysComeFromTheFilteredSet();
     void emptyGridSaysWhyItIsEmpty();
     void choosingTheTargetSemesterStartsTheNewCycleFromScratch();
+    void archivingAfterASyncStillDoesNotCaptureFallbackCourses();
+    void aTargetChosenBeforeTheFirstFetchStillRescues();
+    void releasingACourseKeepsTheFrozenBackupInTheIndex();
+    void aStoredSentinelSemesterIsNeverAWriteTarget();
     void rebuildWorksOfflineAndNeverLeavesTheIndexEmpty();
     void rebuildScansTheDiskAndDropsPhantomCourses();
     void folderUidSurvivesRenamesAndSeparatesReusedCourseIds();
@@ -126,6 +134,9 @@ private:
     // ClassroomClient entrega tambien los datos de prueba de forma asincrona, asi
     // que hay que esperar a assignmentsChanged antes de sincronizar carpetas.
     void loadFixtureAndWait();
+    // Igual, pero sin exigir 12 materias: tras un rescate el respaldo congelado
+    // vuelve al listado como materia archivada aparte, con su propia clave.
+    void loadFixtureAllowingFrozenClones();
 
     QTemporaryDir *m_home = nullptr;
     QString m_basePath;
@@ -166,10 +177,15 @@ void TestSemesterSync::makeSyncManager()
 
 void TestSemesterSync::loadFixtureAndWait()
 {
+    loadFixtureAllowingFrozenClones();
+    QCOMPARE(m_sync->courses().size(), kCourseCount);
+}
+
+void TestSemesterSync::loadFixtureAllowingFrozenClones()
+{
     QSignalSpy assignments(m_sync, &SyncManager::assignmentsChanged);
     m_sync->loadSampleData(m_fixture);
     QVERIFY(assignments.wait(5000));
-    QCOMPARE(m_sync->courses().size(), kCourseCount);
 }
 
 // Caso 1: S2 archivado y S3 activo -> las materias aterrizan en S3 y S2 no se toca.
@@ -287,6 +303,167 @@ void TestSemesterSync::archivingDoesNotDragCoursesThatOnlyMatchedByFallback()
 
     QVERIFY(m_sync->unarchiveSemester(QStringLiteral("Semestre 2")));
     QVERIFY(!m_sync->isSemesterArchived(QStringLiteral("Semestre 2")));
+}
+
+// Misma garantia que la anterior, pero despues de un sync. syncFolders registra el
+// semestre resuelto de CADA materia en sync_state.json, asi que una materia que solo
+// cayo ahi por el fallback acaba con semestre escrito en el indice. Si esa marca
+// contara como asignacion, archivar volveria a capturarlas a todas y el sync dejaria
+// de tocarlas en silencio: es la regresion de ea3d81a por otra puerta.
+void TestSemesterSync::archivingAfterASyncStillDoesNotCaptureFallbackCourses()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 2"));
+    m_sync->syncFolders();
+
+    ConfigManager config;
+    QVERIFY(config.load());
+    QCOMPARE(config.semesterMapping().size(), 0);
+
+    QVERIFY(m_sync->archiveSemester(QStringLiteral("Semestre 2")));
+
+    for (int i = 0; i < kCourseCount; ++i) {
+        QVERIFY2(!m_sync->isCourseArchived(courseId(i)),
+                 "el semestre que dejo escrito el sync no es una asignacion del usuario");
+    }
+
+    // Y el respaldo sigue funcionando: eligiendo destino nuevo escriben ahi.
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    m_sync->syncFolders();
+    for (int i = 0; i < kCourseCount; ++i) {
+        const QString expected =
+            QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 3/%1").arg(courseName(i)));
+        QVERIFY2(QFileInfo::exists(expected), qPrintable(QStringLiteral("falta %1").arg(expected)));
+    }
+}
+
+// El rescate necesita saber que materias sigue devolviendo Classroom, y eso solo se
+// sabe tras un fetch. Elegir el destino recien arrancada la app no rescataba nada y
+// no se reintentaba nunca: la eleccion queda pendiente y se aplica en el fetch.
+void TestSemesterSync::aTargetChosenBeforeTheFirstFetchStillRescues()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 2"));
+    m_sync->syncFolders();
+    for (int i = 0; i < kCourseCount; ++i) {
+        m_sync->setSemesterForCourse(courseId(i), QStringLiteral("Semestre 2"));
+    }
+    QVERIFY(m_sync->archiveSemester(QStringLiteral("Semestre 2")));
+
+    // Reinicio: la instancia nueva aun no ha hablado con Classroom.
+    delete m_sync;
+    makeSyncManager();
+    QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), 0);
+
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    loadFixtureAllowingFrozenClones();
+
+    QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), 0);
+    for (int i = 0; i < kCourseCount; ++i) {
+        QCOMPARE(m_sync->semesterForCourse(courseId(i)), QStringLiteral("Semestre 3"));
+    }
+
+    // El respaldo congelado sigue en el listado, ahora como materia archivada propia.
+    int frozen = 0;
+    for (const Course &course : m_sync->courses()) {
+        if (course.id.startsWith(QStringLiteral("local:"))) {
+            ++frozen;
+            QVERIFY(m_sync->isCourseArchived(course.id));
+        }
+    }
+    QCOMPARE(frozen, kCourseCount);
+
+    // Y un semestre archivado nunca es destino, ni siquiera diferido.
+    QVERIFY(!m_sync->setDefaultSemester(QStringLiteral("Semestre 2")));
+    QCOMPARE(m_sync->defaultSemester(), QStringLiteral("Semestre 3"));
+}
+
+// El respaldo congelado y la materia viva comparten courseId: en cuanto la viva
+// sincroniza en el semestre nuevo, updateCourse reescribe semester y folderPath sobre
+// la misma entrada y la carpeta archivada desaparece del indice. La carpeta seguia en
+// disco, pero el semestre archivado ya no era navegable hasta un --rebuild-index.
+void TestSemesterSync::releasingACourseKeepsTheFrozenBackupInTheIndex()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 2"));
+    m_sync->syncFolders();
+    for (int i = 0; i < kCourseCount; ++i) {
+        m_sync->setSemesterForCourse(courseId(i), QStringLiteral("Semestre 2"));
+    }
+    QVERIFY(m_sync->archiveSemester(QStringLiteral("Semestre 2")));
+
+    const QString frozenFolder =
+        QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2/%1").arg(courseName(0)));
+    QVERIFY(QFileInfo::exists(frozenFolder));
+    const QMap<QString, QDateTime> archivedBefore =
+        treeSnapshot(QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2")));
+
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    QCOMPARE(m_sync->coursesTrappedInArchivedSemester().size(), 0);
+    m_sync->syncFolders();
+
+    // La materia viva escribe en el ciclo nuevo...
+    QCOMPARE(m_sync->courseFolderPath(courseId(0)),
+             QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 3/%1").arg(courseName(0))));
+
+    // ...y el respaldo congelado conserva SU entrada, con clave propia.
+    SyncStateManager state(m_sync->configManager().syncStatePath());
+    QVERIFY(state.load());
+    QStringList frozenKeys;
+    for (const QString &key : state.courseIds()) {
+        if (state.courseFolderPath(key) == frozenFolder) {
+            frozenKeys.append(key);
+        }
+    }
+    QCOMPARE(frozenKeys.size(), 1);
+    QVERIFY2(frozenKeys.first().startsWith(QStringLiteral("local:")),
+             "el respaldo congelado no puede seguir clavado en el courseId que reusa la materia viva");
+    QCOMPARE(state.courseSemester(frozenKeys.first()), QStringLiteral("Semestre 2"));
+    QVERIFY(!state.assignmentIds(frozenKeys.first()).isEmpty());
+
+    // Re-clavar es solo indice: bajo el arbol archivado no se escribio ni un byte.
+    QCOMPARE(treeSnapshot(QDir(m_basePath).filePath(QStringLiteral("Tareas/Semestre 2"))), archivedBefore);
+}
+
+// Los dos centinelas no son semestres. El indice puede traer "Todos los semestres"
+// escrito (estado heredado de cuando el filtro de vista movia el destino, o un
+// escaneo de una carpeta con ese nombre), y usarlo como destino creaba
+// Tareas/Todos los semestres/<materia>.
+void TestSemesterSync::aStoredSentinelSemesterIsNeverAWriteTarget()
+{
+    makeSyncManager();
+    loadFixtureAndWait();
+    m_sync->setDefaultSemester(QStringLiteral("Semestre 3"));
+    m_sync->syncFolders();
+
+    const QString statePath = m_sync->configManager().syncStatePath();
+    {
+        QFile file(statePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+
+        QJsonObject courses = root.value(QStringLiteral("courses")).toObject();
+        QJsonObject course = courses.value(courseId(0)).toObject();
+        course.insert(QStringLiteral("semester"), Semester::all());
+        courses.insert(courseId(0), course);
+        root.insert(QStringLiteral("courses"), courses);
+
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(root).toJson());
+        file.close();
+    }
+
+    makeSyncManager();
+    loadFixtureAndWait();
+    QCOMPARE(m_sync->semesterForCourse(courseId(0)), QStringLiteral("Semestre 3"));
+    QVERIFY(!QFileInfo::exists(QDir(m_basePath).filePath(QStringLiteral("Tareas/%1")).arg(Semester::all())));
 }
 
 // Caso 4: cambiar el filtro de vista no puede mover el destino de escritura. Con

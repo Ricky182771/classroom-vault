@@ -45,7 +45,10 @@ public:
     QString globalSemesterFilter() const;
     void setGlobalSemesterFilter(const QString &semester);
     QString defaultSemester() const;
-    void setDefaultSemester(const QString &semester);
+    // Falso si el destino se rechazo: semestre archivado, o hay un sync en curso
+    // (el pipeline no es interrumpible). La UI necesita saberlo para no dejar el
+    // combo mostrando un destino que nunca se aplico.
+    bool setDefaultSemester(const QString &semester);
     bool isSemesterArchived(const QString &semester) const;
     bool isCourseArchived(const QString &courseId) const;
     QStringList archivedSemesters() const;
@@ -58,9 +61,6 @@ public:
     // Pasa cuando la institucion reutiliza el mismo curso de Classroom y solo lo
     // renombra al empezar un ciclo nuevo.
     QList<Course> coursesTrappedInArchivedSemester() const;
-    // Las devuelve al semestre activo indicado. Deja intacto el respaldo que ya
-    // tienen bajo el arbol archivado: a partir de aqui escriben en el nuevo.
-    int releaseCoursesFromArchivedSemester(const QString &targetSemester);
     QString ensureSemesterFolderExists(const QString &semester);
 
     QString assignmentFolderPath(const QString &courseId, const QString &assignmentId) const;
@@ -165,6 +165,18 @@ private:
     // Resolucion unica de la carpeta de una materia: tareas y publicaciones deben
     // salir de aqui, o el mismo curso acaba repartido entre dos semestres.
     QString resolveCoursePath(const Course &course) const;
+    // Las devuelve al semestre activo indicado. Deja intacto el respaldo que ya
+    // tienen bajo el arbol archivado: a partir de aqui escriben en el nuevo.
+    int releaseCoursesFromArchivedSemester(const QString &targetSemester);
+    // Rescate hacia el destino actual. Solo lo dispara un acto explicito del
+    // usuario (elegir destino): hacerlo en cada sync desharia el archivado que el
+    // usuario acaba de pedir. Si aun no se sabe que materias siguen vivas, la
+    // decision queda anotada y la consume el siguiente onCoursesFetched.
+    void releaseTrappedCoursesIntoTarget();
+    // Re-clava en el indice el respaldo congelado de una materia que se va a un
+    // semestre nuevo, para que el sync siguiente no reescriba su entrada.
+    QString pinFrozenBackupUnderLocalKey(const QString &courseId);
+    bool isSyncPipelineRunning() const;
     bool ensureCourseAndAssignmentPaths(
         const Course &course,
         const Assignment &assignment,
@@ -204,6 +216,9 @@ private:
     // las materias archivadas que solo existen en local. Sin esta distincion no
     // se puede saber que materias siguen vivas.
     QSet<QString> m_remoteCourseIds;
+    // Destino que el usuario eligio antes de que se supiera que materias siguen
+    // vivas. Se consume en el siguiente onCoursesFetched.
+    QString m_pendingReleaseTarget;
 
     int m_pendingCourseWorkRequests = 0;
     int m_pendingPublicationFetchRequests = 0;

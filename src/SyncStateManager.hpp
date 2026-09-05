@@ -53,6 +53,10 @@ public:
     // Reinyecta un curso completo tal cual. Solo para preservar semestres archivados
     // durante una reconstruccion de indice: la API tipada recalcularia hashes y marcas.
     void setCourseStateRaw(const QString &courseId, const QJsonObject &courseState);
+    // Descarta la entrada de una materia. Solo para re-clavar un respaldo congelado
+    // bajo su clave local:<uid>: el objeto se reinserta con la clave nueva antes de
+    // borrar la vieja, asi que no se pierde nada. No toca un solo fichero en disco.
+    bool removeCourse(const QString &courseId);
 
     QString courseFolderPath(const QString &courseId) const;
     // Semestre en cuya carpeta vive realmente el respaldo de esta materia.

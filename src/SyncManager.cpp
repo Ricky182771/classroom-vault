@@ -1,8 +1,8 @@
 #include "Semester.hpp"
 #include "SyncManager.hpp"
 
+#include "CourseFolderMarker.hpp"
 #include "LocalIndexScanner.hpp"
-
 #include "Utils.hpp"
 
 #include <QDateTime>
@@ -159,22 +159,33 @@ bool SyncManager::isPathInsideBasePath(const QString &path) const
 
 QString SyncManager::semesterForCourse(const QString &courseId) const
 {
-    // 1. Asignacion explicita del usuario.
+    // 1. Asignacion explicita del usuario. Es la unica via por la que una materia
+    //    viva puede quedar "archivada": una decision que el usuario tomo y que
+    //    releaseCoursesFromArchivedSemester puede reescribir.
     const QString semester = m_semesterByCourse.value(courseId).trimmed();
-    if (!semester.isEmpty() && semester != Semester::none()) {
+    if (!Semester::isSentinel(semester)) {
         return semester;
     }
 
     // 2. El semestre en cuya carpeta vive el respaldo. Es lo que hay en disco, y
     //    manda sobre el destino de las materias nuevas: elegir "Semestre 3" como
     //    destino no puede arrastrar ahi el respaldo congelado del ciclo pasado.
+    //
+    //    Salvo en un caso: que ese semestre este archivado Y Classroom siga
+    //    devolviendo la materia. Eso no es una materia archivada, es el respaldo
+    //    congelado de un curso reutilizado, y el ciclo nuevo pertenece al destino
+    //    de escritura. Sin esta excepcion, archivar un semestre convertia en
+    //    archivada a TODA materia que alguna vez se respaldo ahi -- incluidas las
+    //    que solo cayeron por el fallback, que es justo lo que archiveSemester
+    //    evita al no fijarlas: el sync dejaba de tocarlas en silencio.
     const QString storedSemester = m_syncStateManager.courseSemester(courseId);
-    if (!storedSemester.isEmpty() && storedSemester != Semester::none()) {
+    if (!Semester::isSentinel(storedSemester)
+        && !(isSemesterArchived(storedSemester) && m_remoteCourseIds.contains(courseId))) {
         return storedSemester;
     }
 
     const QString defaultSemesterValue = m_configManager.defaultSemester().trimmed();
-    if (!defaultSemesterValue.isEmpty() && defaultSemesterValue != Semester::all()) {
+    if (!Semester::isSentinel(defaultSemesterValue)) {
         return defaultSemesterValue;
     }
     return Semester::none();
@@ -260,14 +271,50 @@ QString SyncManager::defaultSemester() const
     return m_configManager.defaultSemester();
 }
 
-void SyncManager::setDefaultSemester(const QString &semester)
+bool SyncManager::isSyncPipelineRunning() const
+{
+    return m_syncOperationMode == SyncOperationMode::SyncAll
+        || m_syncOperationMode == SyncOperationMode::SyncCourse;
+}
+
+void SyncManager::releaseTrappedCoursesIntoTarget()
+{
+    const QString target = m_configManager.defaultSemester().trimmed();
+    if (Semester::isSentinel(target) || isSemesterArchived(target)) {
+        return;
+    }
+
+    // Que materias siguen vivas solo se sabe tras un fetch. Elegir el destino
+    // recien arrancada la app no rescataba nada porque m_remoteCourseIds aun
+    // estaba vacio y el rescate no se volvia a intentar nunca. La decision del
+    // usuario queda anotada y se aplica en cuanto Classroom conteste, una sola vez:
+    // el rescate es una accion explicita suya, no una politica de cada sync.
+    if (m_remoteCourseIds.isEmpty()) {
+        m_pendingReleaseTarget = target;
+        return;
+    }
+
+    m_pendingReleaseTarget.clear();
+    releaseCoursesFromArchivedSemester(target);
+}
+
+bool SyncManager::setDefaultSemester(const QString &semester)
 {
     // El fallback no puede apuntar a un semestre archivado: arrastraria dentro de el
     // a toda materia sin mapeo explicito.
     if (isSemesterArchived(semester)) {
         logArch(QStringLiteral("Semestre archivado en solo lectura. No se usa como semestre por defecto: %1")
                     .arg(semester.trimmed()));
-        return;
+        return false;
+    }
+
+    // El pipeline no es interrumpible: onCoursesFetched congela el alcance y
+    // syncFolders resuelve cada carpeta despues. Cambiar el destino entre medias
+    // hacia que semesterForCourse devolviera un semestre distinto al que decidio
+    // el alcance, y la corrida quedaba a medio migrar.
+    if (isSyncPipelineRunning()) {
+        logErr(QStringLiteral("Hay una sincronizacion en curso. El semestre destino no se cambia hasta que termine."));
+        return false;
     }
 
     m_configManager.setDefaultSemester(semester);
@@ -275,7 +322,7 @@ void SyncManager::setDefaultSemester(const QString &semester)
         ++m_errorCount;
         logErr(QStringLiteral("No se pudo guardar config.json"));
         emitCounters();
-        return;
+        return false;
     }
 
     // Elegir el semestre destino es una decision explicita del usuario: a partir de
@@ -283,10 +330,8 @@ void SyncManager::setDefaultSemester(const QString &semester)
     // devolviendo pero que quedo apuntando a un semestre archivado se re-hoga sola,
     // porque si no queda excluida de todos los syncs futuros sin que nada lo diga.
     // El respaldo congelado no se mueve: se queda en su carpeta, con su identidad.
-    const QString target = m_configManager.defaultSemester().trimmed();
-    if (!target.isEmpty() && !isSemesterArchived(target)) {
-        releaseCoursesFromArchivedSemester(target);
-    }
+    releaseTrappedCoursesIntoTarget();
+    return true;
 }
 
 bool SyncManager::isSemesterArchived(const QString &semester) const
@@ -387,16 +432,80 @@ QList<Course> SyncManager::coursesTrappedInArchivedSemester() const
     return trapped;
 }
 
+QString SyncManager::pinFrozenBackupUnderLocalKey(const QString &courseId)
+{
+    // El respaldo congelado y la materia viva comparten courseId, asi que en cuanto
+    // la materia viva vuelve a sincronizarse updateCourse reescribe semester y
+    // folderPath sobre la MISMA entrada: la carpeta archivada sobrevive en disco
+    // pero desaparece del indice, y el semestre archivado deja de ser navegable
+    // hasta un --rebuild-index. Se re-clava aqui bajo la clave local:<uid>, la
+    // misma que usa LocalIndexScanner cuando un courseId tiene dos respaldos.
+    const QJsonObject frozenState = m_syncStateManager.courseState(courseId);
+    if (frozenState.isEmpty()) {
+        return QString();
+    }
+
+    const QString frozenPath = frozenState.value(QStringLiteral("folderPath")).toString().trimmed();
+    const QString frozenSemester = frozenState.value(QStringLiteral("semester")).toString().trimmed();
+    if (!isSemesterArchived(frozenSemester) && !pathIsUnderArchivedSemester(frozenPath)) {
+        // No hay respaldo congelado que preservar: la entrada es de la materia viva.
+        return QString();
+    }
+
+    // El arbol archivado es de solo lectura: se LEE el marcador, nunca se crea. Si
+    // la carpeta no lo tiene todavia se cae al mismo identificador por ruta que
+    // genera el escaneo, de modo que una reconstruccion posterior produce la misma
+    // clave en vez de duplicar la materia.
+    const QString uid = frozenPath.isEmpty() ? QString() : CourseFolderMarker::uid(frozenPath);
+    const QString localKey = uid.isEmpty()
+        ? QStringLiteral("local:%1/%2").arg(frozenSemester, QFileInfo(frozenPath).fileName())
+        : QStringLiteral("local:%1").arg(uid);
+
+    if (m_syncStateManager.hasCourse(localKey)) {
+        // Ya se re-clavo en un rescate anterior; la entrada vieja solo estorba.
+        m_syncStateManager.removeCourse(courseId);
+        return localKey;
+    }
+
+    QJsonObject relocated = frozenState;
+    if (!uid.isEmpty()) {
+        relocated.insert(QStringLiteral("localUid"), uid);
+    }
+    relocated.insert(QStringLiteral("classroomCourseId"), courseId);
+    m_syncStateManager.setCourseStateRaw(localKey, relocated);
+    m_syncStateManager.removeCourse(courseId);
+    return localKey;
+}
+
 int SyncManager::releaseCoursesFromArchivedSemester(const QString &targetSemester)
 {
     const QString target = targetSemester.trimmed();
-    if (target.isEmpty() || Semester::isSentinel(target) || isSemesterArchived(target)) {
+    if (Semester::isSentinel(target) || isSemesterArchived(target)) {
         logErr(QStringLiteral("Destino invalido para rescatar materias: %1").arg(target));
         return 0;
     }
 
     const QList<Course> trapped = coursesTrappedInArchivedSemester();
     if (trapped.isEmpty()) {
+        return 0;
+    }
+
+    // El indice va primero: si el re-clavado no se persiste, el mapeo no se toca y
+    // el estado queda exactamente como estaba. Al reves habria que reconstruir el
+    // mapeo anterior de memoria para deshacerlo.
+    QStringList pinned;
+    for (const Course &course : trapped) {
+        const QString localKey = pinFrozenBackupUnderLocalKey(course.id);
+        if (!localKey.isEmpty()) {
+            pinned.append(localKey);
+        }
+    }
+
+    if (!pinned.isEmpty() && !m_syncStateManager.save()) {
+        ++m_errorCount;
+        logErr(QStringLiteral("No se pudo guardar sync_state.json. Las materias NO quedaron rescatadas."));
+        emitCounters();
+        m_syncStateManager.load();
         return 0;
     }
 
@@ -419,6 +528,11 @@ int SyncManager::releaseCoursesFromArchivedSemester(const QString &targetSemeste
                 .arg(moved.size())
                 .arg(target)
                 .arg(moved.join(QStringLiteral(", "))));
+    if (!pinned.isEmpty()) {
+        logArch(QStringLiteral("%1 respaldos congelados conservan su entrada en el indice con clave propia: %2")
+                    .arg(pinned.size())
+                    .arg(pinned.join(QStringLiteral(", "))));
+    }
     emit coursesChanged(m_courses);
     emit syncStateChanged();
     return moved.size();
@@ -1264,6 +1378,18 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
         m_configManager.save();
     }
 
+    // Destino elegido cuando aun no se sabia que materias seguian vivas: ahora si.
+    // Va ANTES de calcular el alcance, para que las rescatadas entren en esta misma
+    // corrida, y antes de reinyectar los cursos archivados, para que
+    // mergeArchivedLocalCourses recargue el estado ya re-clavado.
+    if (!m_pendingReleaseTarget.isEmpty()) {
+        const QString target = m_pendingReleaseTarget;
+        m_pendingReleaseTarget.clear();
+        if (!isSemesterArchived(target)) {
+            releaseCoursesFromArchivedSemester(target);
+        }
+    }
+
     // Los semestres archivados no dependen de la respuesta remota: se reinyectan
     // desde el estado local antes de publicar nada a la UI.
     mergeArchivedLocalCourses();
@@ -1305,8 +1431,8 @@ void SyncManager::onCoursesFetched(const QList<Course> &courses)
             names.append(course.name.trimmed().isEmpty() ? course.id : course.name);
         }
         logErr(QStringLiteral("%1 materias siguen activas en Classroom pero su semestre esta archivado, "
-                              "asi que ningun sync las respalda: %2. Usa \"Rescatar materias\" para moverlas "
-                              "al semestre de destino.")
+                              "asi que ningun sync las respalda: %2. Elige un semestre activo en "
+                              "\"Materias nuevas ->\" y empezaran el ciclo nuevo ahi.")
                    .arg(trapped.size())
                    .arg(names.join(QStringLiteral(", "))));
     }

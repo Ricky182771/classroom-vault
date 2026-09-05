@@ -1532,7 +1532,15 @@ void MainWindow::onGlobalSemesterFilterChanged(const QString &semester)
 void MainWindow::onTargetSemesterChanged(const QString &semester)
 {
     const QString clean = semester.trimmed();
-    if (clean.isEmpty() || clean == m_syncManager->defaultSemester().trimmed()) {
+    if (clean.isEmpty()) {
+        return;
+    }
+
+    // Re-elegir el mismo destino no es un no-op cuando hay materias atrapadas: el
+    // combo emite activated en cada seleccion, y esta es la unica forma que tiene el
+    // usuario de reintentar el rescate desde la UI.
+    if (clean == m_syncManager->defaultSemester().trimmed()
+        && m_syncManager->coursesTrappedInArchivedSemester().isEmpty()) {
         return;
     }
 
@@ -1544,7 +1552,15 @@ void MainWindow::onTargetSemesterChanged(const QString &semester)
         return;
     }
 
-    m_syncManager->setDefaultSemester(clean);
+    if (!m_syncManager->setDefaultSemester(clean)) {
+        // Rechazado (sync en curso, o el semestre quedo archivado entre medias). El
+        // combo tiene que volver al destino real: dejarlo mostrando el elegido hacia
+        // creer que el cambio se aplico.
+        appendError(QStringLiteral("No se pudo fijar %1 como semestre destino. Revisa la actividad.").arg(clean));
+        refreshArchiveUi();
+        return;
+    }
+
     const QString folder = m_syncManager->ensureSemesterFolderExists(clean);
     if (!folder.trimmed().isEmpty()) {
         appendLog(QStringLiteral("INFO  Semestre destino de materias nuevas: %1 · carpeta lista: %2").arg(clean, folder));
