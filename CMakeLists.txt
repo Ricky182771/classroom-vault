@@ -10,13 +10,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Network Widgets)
 
-# Qt6::DBus es opcional y solo se usa en Linux, para hablar con
-# org.freedesktop.FileManager1 desde src/Platform.cpp. Si no esta instalado el
-# proyecto sigue configurando y la apertura de carpetas cae en QDesktopServices.
-if(UNIX AND NOT APPLE)
-    find_package(Qt6 QUIET COMPONENTS DBus)
-endif()
-
 qt_standard_project_setup()
 
 # On Windows the executable must declare the GUI subsystem so that no black
@@ -60,8 +53,6 @@ qt_add_library(classroom-vault-core STATIC
     src/AttachmentChecksumManager.cpp
     src/Models.hpp
     src/Paths.hpp
-    src/Platform.hpp
-    src/Platform.cpp
     src/Semester.hpp
     src/Utils.hpp
     src/ui/MainWindow.hpp
@@ -129,14 +120,6 @@ target_link_libraries(classroom-vault-core
         Qt6::Network
         Qt6::Widgets
 )
-
-if(TARGET Qt6::DBus)
-    target_link_libraries(classroom-vault-core PUBLIC Qt6::DBus)
-    target_compile_definitions(classroom-vault-core PUBLIC CV_HAVE_QTDBUS)
-    message(STATUS "[Platform] Apertura de carpetas via org.freedesktop.FileManager1")
-else()
-    message(STATUS "[Platform] Sin Qt6::DBus: apertura de carpetas via QDesktopServices")
-endif()
 
 target_include_directories(classroom-vault-core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
