@@ -3,6 +3,7 @@
 
 #include "../GoogleAuth.hpp"
 #include "../Paths.hpp"
+#include "../Platform.hpp"
 #include "../SyncManager.hpp"
 #include "../Utils.hpp"
 #include "ActivityDrawerWidget.hpp"
@@ -1071,7 +1072,7 @@ void MainWindow::onOpenBaseFolder()
         return;
     }
 
-    QDesktopServices::openUrl(QUrl::fromLocalFile(basePath));
+    Platform::openFolder(basePath);
 }
 
 void MainWindow::onClearLogs()
@@ -1314,7 +1315,7 @@ void MainWindow::onOpenCourseFolder(const QString &courseId)
         return;
     }
 
-    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    Platform::openFolder(path);
 }
 
 void MainWindow::onSyncCourseRequested(const QString &courseId)
@@ -1397,7 +1398,7 @@ void MainWindow::onOpenAssignmentFolder(const QString &courseId, const QString &
         return;
     }
 
-    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    Platform::openFolder(path);
 }
 
 void MainWindow::onOpenAssignmentClassroom(const QString &courseId, const QString &assignmentId)
@@ -1425,7 +1426,7 @@ void MainWindow::onOpenPublicationFolder(const QString &courseId, const QString 
         appendError(QStringLiteral("Publicacion sin carpeta local."));
         return;
     }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(folderPath));
+    Platform::openFolder(folderPath);
 }
 
 void MainWindow::onOpenPublicationClassroom(const QString &courseId, const QString &publicationId)

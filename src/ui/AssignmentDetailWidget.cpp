@@ -1,5 +1,6 @@
 #include "AssignmentDetailWidget.hpp"
 
+#include "../Platform.hpp"
 #include "AssignmentStatusResolver.hpp"
 #include "AttachmentCardWidget.hpp"
 #include "UserWorkPanelWidget.hpp"
@@ -287,12 +288,11 @@ void AssignmentDetailWidget::rebuildAttachments()
                 QMessageBox::information(this, QStringLiteral("Adjunto"), QStringLiteral("No hay ruta local para este adjunto."));
                 return;
             }
-            const QString folder = QFileInfo(entry.localPath).absolutePath();
-            if (folder.trimmed().isEmpty()) {
+            if (QFileInfo(entry.localPath).absolutePath().trimmed().isEmpty()) {
                 QMessageBox::information(this, QStringLiteral("Adjunto"), QStringLiteral("No se pudo determinar la carpeta local."));
                 return;
             }
-            QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+            Platform::revealPath(entry.localPath);
         });
 
         connect(card, &AttachmentCardWidget::openUrlRequested, this, [this](const AttachmentUiState &entry) {

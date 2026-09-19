@@ -1,6 +1,7 @@
 #include "UserWorkPanelWidget.hpp"
 
 #include "../FolderOrganizer.hpp"
+#include "../Platform.hpp"
 
 #include <QDesktopServices>
 #include <QDir>
@@ -56,7 +57,7 @@ UserWorkPanelWidget::UserWorkPanelWidget(QWidget *parent)
         }
 
         emit openAssignmentFolderRequested(m_assignmentFolderPath);
-        QDesktopServices::openUrl(QUrl::fromLocalFile(m_assignmentFolderPath));
+        Platform::openFolder(m_assignmentFolderPath);
     });
 
     connect(m_list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
